@@ -1,0 +1,8 @@
+tmp/*
+!tmp/.gitignore
+
+tools/tmp/*
+!tools/tmp/.gitignore
+
+Thumbs.db
+Desktop.ini

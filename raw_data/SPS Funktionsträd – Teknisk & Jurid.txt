@@ -1,0 +1,80 @@
+SPS Funktionsträd – Teknisk & Juridisk Specifikation 🌲
+1. Juridiskt Ramverk & Avtalslogik (Legal & Compliance)
+Lagrumshantering
+
+Hyreslagen (Jordabalken 12 kap): Tillämpas för specifika parkeringsplatser (lokalhyra). Hanterar formkrav för uppsägning och hyresvillkor.
+
+Arrendelagen: Tillämpas vid upplåtelse av mark för parkering (anläggningsarrende).
+
+STA Protection (Besittningsskydd): Systemstöd för att hantera det lagstadgade besittningsskyddet. Detta är anledningen till att SPS inte säljer "prenumerationer" utan formella hyresavtal med specifika uppsägningstider.
+
+Avtalsingående
+
+Konkluderant handlande: Logik för att teckna avtal online där kundens agerande (t.ex. genom att köra in eller klicka "Acceptera") juridiskt likställs med en underskrift.
+
+Digital Signering: Integration med BankID för formella avtal där konkluderant handlande inte är tillräckligt.
+
+Moms- & Paketeringslogik (H/T-split)
+
+H-kontrakt (Hyresavtal): Hanterar själva ytan. Kan vara momsbefriat (t.ex. för BRF) eller momsbelagt.
+
+T-kontrakt (Tilläggstjänster): Alltid momsbelagt (25%). Inkluderar tjänster som bevakning, städning och administration som tillhandahålls av APCOA.
+
+Service Packaging: Automatisk paketering där ett "Produktpaket" i Sales Channel genererar både ett H- och ett T-kontrakt i bakgrunden för korrekt bokföring och momsredovisning.
+
+2. Sales Channel & Digital Access (24/7 Försäljning)
+Automatiskt Flöde
+
+24/7 Tillgänglighet: Fullt automatiserad försäljning utan manuell handpåläggning.
+
+Instant Provisioning: Omedelbar tilldelning av digitala nycklar vid slutfört köp.
+
+Digital Key Management
+
+Accessy / Parakey Integration: Automatisk synkning av behörigheter till kundens mobilapp direkt efter signering.
+
+LPR-access: Registreringsnumret (VRM) skickas direkt till bom-system för omedelbar access via kamera.
+
+3. VRM & Fordonshantering (Vehicle Logic)
+Multi-VRM Stöd
+
+5 VRM per kontrakt: Möjlighet för kunden att ha upp till 5 olika bilar registrerade på ett och samma kontrakt.
+
+Simultaneous Use Prevention: Systemlogik som förhindrar att mer än en bil står parkerad samtidigt på samma kontrakt (valideras via ANPR/Octavius).
+
+VRM-validering
+
+EPMP-synk: Realtidsuppdatering av tillåtna fordon till kontrollörernas handdatorer.
+
+4. Allokerings- & Kapacitetslogik (Space Allocation)
+Reserverade Platser
+
+1-till-1 mappning: En specifik hyresgäst är kopplad till en specifik fysisk plats.
+
+Oreserverade Platser (Poolning)
+
+Overallocation (Överuthyrning): Möjlighet att sälja fler tillstånd än vad det finns fysiska platser (baserat på statistisk beläggning).
+
+Time Shift (Tidsdelning):
+
+Dag-kund: Tillstånd giltigt t.ex. 07:00–18:00.
+
+Natt-kund: Tillstånd giltigt t.ex. 17:00–09:00 samt helger.
+
+Systemet maximerar nyttjandegraden genom att sälja samma yta två gånger per dygn.
+
+5. Integrationer (External Ecosystem)
+EPMP (Permit Management): Synkronisering av alla aktiva tillstånd och VRM-ändringar för parkeringsövervakning.
+
+Octavius: Integration för att visa "SPS-svar" (t.ex. Poolad receptionstjänst) direkt för kontrollörer för att undvika felaktiga kontrollavgifter.
+
+Business Central (ERP): Automatisk överföring av fakturaunderlag med korrekt moms-split (H/T).
+
+SVEA / Billogram: Betalväxlar för kortbetalning, autogiro och fakturadistribution.
+
+EasyPark: Clearing-integration för inläsning av extern transaktionsdata till SPS/Brons.
+
+6. Hotell- & Receptionstjänster (Hospitality)
+Poolad Receptionstjänst: En organisation (t.ex. ett hotell) hyr en pool av platser som de i sin tur fördelar till gäster via ett webbgränssnitt.
+
+Besöksparkering: Funktion för receptionen att registrera besökare med fakturering direkt till hyresgästen (t.ex. TV4-caset).

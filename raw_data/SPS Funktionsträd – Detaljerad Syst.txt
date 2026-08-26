@@ -1,0 +1,104 @@
+SPS Funktionsträd – Detaljerad Systemanalys
+1. Juridiskt Ramverk & Avtalslogik (Legal & Compliance)
+Lagrumshantering
+
+Hyreslagen (Jordabalken 12 kap): Tillämpas för specifika parkeringsplatser (lokalhyra). Hanterar formkrav för uppsägning och hyresvillkor.
+
+Arrendelagen: Tillämpas vid upplåtelse av mark för parkering (anläggningsarrende).
+
+STA Protection (Besittningsskydd): Systemstöd för att hantera det lagstadgade besittningsskyddet, vilket är anledningen till att SPS använder formella hyresavtal istället för enkla prenumerationer.
+
+Avtalsingående
+
+Konkluderant handlande: Juridisk logik för att teckna avtal online där kundens agerande (t.ex. genom att köra in eller klicka "Acceptera") juridiskt likställs med en underskrift.
+
+BankID-integration: Säker identifiering för privatpersoner vid avtalstecknande och inloggning i Serviceportalen.
+
+Moms- & Paketeringslogik (H/T-split)
+
+H-kontrakt (Hyresavtal): Hanterar själva ytan. Kan vara momsbefriat (t.ex. för BRF/Banker) eller momsbelagt (25%).
+
+T-kontrakt (Tilläggstjänster): Alltid momsbelagt (25%). Inkluderar tjänster som bevakning, städning och administration som tillhandahålls av APCOA.
+
+Service Packaging: "Always selling a package!". Produkter (Tariff + Schedule + ProductType) måste ingå i ett paket (t.ex. Rental + EV + Insurance). Systemet sköter automatiskt split mellan H- och T-kontrakt för korrekt bokföring.
+
+2. Ekonomi & Betalningsmodeller (Finance & Payments)
+Betalningsalternativ
+
+Avier: Traditionella pappersavier eller digitala utskick med konfigurerbara aviavgift.
+
+Fakturering: Fakturor för förbrukade tjänster (t.ex. korttidsparkering kopplat till kontrakt).
+
+Digitala nyckelavgifter: Månadskostnader specifikt för innehav av digital access (Accessy/Parakey).
+
+Avgiftsstruktur (Fees)
+
+Serviceavgift (Engångs): Differentierad kostnad beroende på om kontraktet tecknas online eller via kundtjänst.
+
+Förbokningsavgift: Serviceavgift som tas ut vid bokning av plats i framtiden.
+
+Avbokningsavgift: Kostnad som debiteras om en förbokning avbryts.
+
+Nordisk Avisering
+
+B2B: Stöd för Svefaktura och Peppol för företag i hela Norden.
+
+B2C: Autogiro och E-faktura för privatpersoner.
+
+3. Fordon & Allokeringslogik (VRM & Allocation)
+VRM-logik (Registreringsnummer)
+
+Oreserverade platser: Upp till 5 VRM per hyrd plats (t.ex. 10 platser = 50 VRM). Kunden administrerar dessa själv.
+
+Reserverade platser: Obegränsat antal VRM per plats (eftersom endast en bil fysiskt får plats).
+
+Simultaneous Use Prevention: Systemlogik som förhindrar att flera bilar på samma kontrakt står parkerad samtidigt (valideras via ANPR/Octavius).
+
+Avancerad Allokering
+
+Overallocation (Överuthyrning): Uthyrning av fler tillstånd än fysiska platser baserat på statistisk beläggning.
+
+Time Shift (Tidsdelning): Möjlighet att sälja samma yta till olika kunder vid olika tidpunkter (t.ex. Dag-kund vs. Natt-kund).
+
+4. Portaler & Användarfunktioner (Portals)
+Serviceportalen (Kund)
+
+Gemensamt: Teckna/säga upp kontrakt, byta lösenord, ändra aviseringsmetod, se köplatser, ändra VRM.
+
+Företagsspecifikt:
+
+Standarddashboard: Kostnadsfri statistiköversikt.
+
+Utökad statistik (Premium): Omsättning (Kontrakt vs. Park&Go), hyreslistor, kölistor, KPI-analys och YoY-jämförelser.
+
+CSC Portal (Kundtjänst – Deep Dive)
+
+DS Setup (Driftställe):
+
+Begränsningar: Styrning av antal platser per adress, lägenhetsnummer eller personnummer.
+
+Whitelisting/Lösenord: Möjlighet att lösenordsskydda DS som inte ska vara publika (t.ex. interna BRF-köer).
+
+Online Toggle: Aktivera/inaktivera möjligheten för kunder att säga upp kontrakt online.
+
+Kontraktshantering: Ändra i kontrakt, lägga till kommentarer, hantera kölistor manuellt eller automatiskt.
+
+Prisjustering: Verktyg för massuppdatering av priser via KPI, procent eller manuell höjning.
+
+Nyckelhantering: Administration av fysiska nycklar/fjärrkontroller och digitala nycklar (Accessy/Parakey).
+
+Intern Dashboard: Plattform för intern informationsspridning till kundtjänst.
+
+5. CPS – Company Permit System (Personalparkering)
+Administrativa Nivåer: L1 (SPS Admin), L2 (Org-Admin), L3 (Arbetsplats-Admin), L4 (Företags-Admin).
+
+Funktionalitet: Inbjudningsflöden (Registry keys: CPS_invite_org, etc.), hantering av personalbiljetter, verifiering mot externa system (t.ex. HSA-ID för regioner).
+
+6. Integrationer & System (Integrations)
+EPMP: Realtidssynk av tillstånd och VRM för övervakning.
+
+Octavius: Visar SPS-status (t.ex. poolad receptionstjänst) för kontrollörer för att undvika felaktiga kontrollavgifter.
+
+Business Central (Navision): Automatisk överföring av fakturaunderlag med korrekt moms-split (H/T).
+
+SaaS-stöd: Möjliggör för externa fastighetsägare att använda SPS som motor för kontrakt och kundkonton medan de sköter egen avisering.

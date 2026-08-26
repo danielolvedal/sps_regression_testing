@@ -1,0 +1,131 @@
+SPS Funktionsträd – Komplett Systemanalys
+1. Juridiskt Ramverk & Efterlevnad (Legal & Compliance)
+Lagrumshantering
+
+Hyreslagen (Jordabalken 12 kap): Tillämpas för specifika parkeringsplatser (lokalhyra).
+
+Arrendelagen: Tillämpas vid upplåtelse av mark (anläggningsarrende).
+
+STA Protection (Besittningsskydd): Systemstöd för att hantera lagstadgat besittningsskydd, vilket särskiljer SPS från enkla prenumerationstjänster.
+
+Avtalsingående & Säkerhet
+
+Konkluderant handlande: Juridisk logik för att teckna avtal online genom kundens agerande.
+
+BankID-integration: Säker identifiering för privatpersoner vid avtalstecknande och inloggning.
+
+GDPR & Känslig data: Hantering av personuppgifter, personnummer och samordningsnummer med strikt behörighetskontroll.
+
+Sales Channel 24/7
+
+Fullt automatiserad försäljning dygnet runt med omedelbar tilldelning av digitala nycklar vid signerat avtal.
+
+2. Ekonomi & Betalningsmodeller (Finance & Payments)
+Betalningsalternativ
+
+Avier: Traditionella pappersavier eller digitala utskick med tillhörande aviavgift.
+
+Fakturering: Fakturor för förbrukade tjänster (t.ex. korttidsparkering kopplat till kontrakt).
+
+Digitala nyckelavgifter: Månadskostnader specifikt för innehav av digital access.
+
+Avgiftsstruktur (Fees)
+
+Serviceavgift (Engångs): Differentierad kostnad beroende på om kontraktet tecknas online eller via kundtjänst.
+
+Förbokningsavgift: Serviceavgift som tas ut vid bokning av plats i framtiden.
+
+Avbokningsavgift: Kostnad som debiteras om en förbokning avbryts.
+
+Nordisk Avisering & Metoder
+
+B2B: Stöd för Svefaktura och Peppol för företag i hela Norden.
+
+B2C: Autogiro och E-faktura för privatpersoner.
+
+Valutahantering: Stöd för avisering i olika nordiska valutor.
+
+3. SaaS & Företagslösningar (SaaS & B2B)
+SaaS-modellen
+
+Företag sköter själva aviseringen i egna hyressystem.
+
+SPS används som motor för att lägga upp kontrakt, hantera kundkonton och administrera fordon.
+
+CPS (Company Permit System)
+
+Hierarkisk administration (L1-L4) för stora organisationer (t.ex. Regioner) för att hantera personalparkering och underleverantörer.
+
+4. Serviceportalen (Customer Portal)
+Gemensamma funktioner (B2C & B2B)
+
+Teckna/säga upp kontrakt, byta lösenord, ändra aviseringsmetod, se köplatser och administrera registreringsnummer.
+
+Företagsspecifika funktioner (B2B Statistics)
+
+Standarddashboard: Kostnadsfri översikt för alla företagskunder.
+
+Utökad statistik (Premium):
+
+Omsättning för kontraktsparkering vs. korttid (Park&Go).
+
+Hyreslistor och kölistor i realtid.
+
+KPI-analys och jämförelser med föregående år (YoY).
+
+5. Fordon & Allokering (VRM & Allocation)
+VRM-logik (Registreringsnummer)
+
+Oreserverade platser: Upp till 5 VRM per hyrd plats (t.ex. 10 platser = 50 VRM). Kunden administrerar dessa själv.
+
+Reserverade platser: Obegränsat antal VRM per plats (eftersom endast en bil fysiskt får plats).
+
+Simultaneous Use Prevention: Systemlogik som förhindrar att flera bilar på samma kontrakt står parkerad samtidigt (valideras via ANPR).
+
+Avancerad Allokering
+
+Overallocation: Uthyrning av fler tillstånd än fysiska platser baserat på beläggningsgrad.
+
+Time Shift: Tidsdelning av yta (t.ex. Dag-kund vs. Natt-kund).
+
+6. Kundtjänstportalen (CSC Portal – Deep Dive)
+Kontrakt & Köer
+
+Fullständig editering av kontrakt, manuell/automatisk köhantering och interna logganteckningar.
+
+Intern Dashboard: Plattform för att publicera viktig information till kundtjänstmedarbetare.
+
+DS-konfiguration (Facility Setup)
+
+Begränsningar: Styrning av antal platser per adress, lägenhetsnummer eller personnummer.
+
+Synlighet: Live-status på webben, lösenordsskyddade DS (t.ex. för slutna BRF:er).
+
+Ekonomisk styrning: Uppsättning av ekonomiska zoner, fysiska områden och kontraktstemplates.
+
+Online Termination Toggle: Styr om kunder får säga upp specifika kontraktstyper online.
+
+Produkter & Paket
+
+Paketering av tjänster (t.ex. Reserverad plats + Motorvärmare som ett odelbart paket).
+
+Aktivering och hantering av digitala nycklar (Accessy/Parakey) samt fysiska nycklar/fjärrkontroller.
+
+Prisjusteringsverktyg
+
+Kraftfulla verktyg för massuppdatering av priser.
+
+Mekanismer: KPI-baserad höjning, procentuell höjning eller manuell justering.
+
+Systemövervakning
+
+Läsning av systemloggar för att identifiera och åtgärda fel i realtid.
+
+7. Integrationer (External Ecosystem)
+EPMP: Realtidssynk av tillstånd och VRM för övervakning.
+
+Octavius: Visar SPS-status (t.ex. hotell/reception) för kontrollörer.
+
+Business Central (ERP): Synkning av H- och T-kontrakt med korrekt moms-split.
+
+Betalväxlar: Svea, Billogram, Autogiro-centralen.

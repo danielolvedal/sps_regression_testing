@@ -1,0 +1,11 @@
+flowchart LR
+    A["A: End on logged-in service portal page"]
+    B["B: Click Nytt kontrakt and use migrated DS"]
+    C["C: Click Nytt kontrakt and use non-migrated DS"]
+    D["D: Validate document index coverage"]
+    E["E: Validate raw-data kallinventering coverage"]
+    F["F: Validate regression dependency sync"]
+    G["G: Verify checkout and create contract"]
+    A --> B
+    A --> C
+    B --> G

@@ -1,0 +1,153 @@
+SPS Funktionsträd 🌲
+1. Kontraktshantering (Contract Management)
+Kontraktets livscykel
+
+Skapande: Flöde för att skapa nya kontrakt (v3), stöd för både H-kontrakt (Huvud) och T-kontrakt (Tillägg).
+
+Ändring: Vy för kontraktsöversikt med snabbkopiering av information, byte av parkeringsplats, ändring av slutdatum.
+
+Uppsägning: Automatiska notifieringar vid avslut, instruktioner för nyckelåterlämning.
+
+Ångerrätt: Funktion för att ångra köp direkt via Sales Channel (enligt lagkrav).
+
+Segmentering: Separation av B2B (företag) och B2C (privatpersoner).
+
+Prissättning & Fakturering
+
+Prishöjningar: Årliga prishöjningar via Scheduler Daemon, batch-editering av priser, KPI-baserade höjningar (integration med SCB).
+
+Moms: Hantering av momsbelagda och momsbefria paket (t.ex. för BRF).
+
+Fakturering: E-postfakturor, integration med Navision/Business Central för synkning av fakturaunderlag och krediteringar.
+
+Betalning: Autogiro (automatisk hämtning av medgivanden), integration med SVEA för kortbetalningar.
+
+Tilläggstjänster (Add-ons)
+
+Nyckeltillägg: Hantering av startnycklar och extra nycklar.
+
+Historiska produkter: "NPU Package" för att visa migrerade legacy-produkter som inte längre är aktiva men krävs för historik.
+
+2. Parkeringsplats & Anläggning (Space & Facility Management)
+Inventarie & Struktur
+
+Anläggningar: Hantering av garage och parkeringsområden via DS-nummer, zoner och typer.
+
+Parkeringsplatser: Reserverade vs. Oreserverade platser, status för fysiska platser (Aktiv, Uthyrd, Blockad, Raderad).
+
+Zonindelning: Mappning av zoner, områden och fastighetsägare.
+
+Byggnadsstruktur: Hantering av våningsplan och byggnader kopplade till platser.
+
+Tillgänglighet & Allokering
+
+Kommande ledigt: Filter för att visa och boka platser som blir lediga i framtiden.
+
+Överallokering: Logik för att hantera uthyrning av fler platser än fysiskt tillgängliga (vid oreserverad parkering).
+
+Låsta siter: Restriktioner för onlineförsäljning (t.ex. endast för boende i en viss BRF).
+
+Andrahandsuthyrning (Subletting)
+
+Möjlighet för kontraktsinnehavare att hyra ut sin plats via externa appar (t.ex. ApparkingSpot).
+
+3. Kö & Erbjudande (Queue & Offer Management)
+Kö-motor (Queue Engine)
+
+Enhetlig motor: Miljöoberoende motor med en "broker"-abstraktion.
+
+Kö-typer: Kö för specifika platser, produkter eller paket (t.ex. reserverad plats med laddning).
+
+Prioritering: Interna vs. externa köer, hantering av köavgifter för prioriterad plats.
+
+Erbjudandeflöde
+
+Automatisering: Daglig körning (kl 09:00) som identifierar lediga platser och skickar erbjudanden.
+
+Kommunikation: Erbjudanden via E-post och SMS med unika acceptans-länkar.
+
+Logik: Accept, avböj, återkalla eller utgånget erbjudande. Automatiska påminnelser.
+
+Monitorering
+
+Kölistor: Vy per plats, DS, person eller produkt.
+
+Statusspårning: Spårning av om erbjudandet är skickat, öppnat eller signerat.
+
+4. Access & Nyckelhantering (Access & Key Management)
+Fysiska Nycklar
+
+Inventarie: Spårning av serienummer, typ (fjärrkontroll, tagg, kort, kod) och status (Borttappad, Trasig, Hos kund).
+
+Hantering: In- och utlämning med audit trail, koppling till specifika Garage Key Managers.
+
+Påminnelser: Automatiska påminnelser 14 dagar efter avslutat kontrakt om nyckeln inte returnerats.
+
+Digital Access
+
+Accessy: Integration för digitala nycklar och accessgrupper.
+
+EPMP: Synkronisering av parkeringstillstånd baserat på VRM (registreringsnummer).
+
+Outlook Integration: Bokning av parkering som Exchange-resurser med krav på VRM via Outlook-tillägg.
+
+5. Försäljning & Kundportaler (Sales & Customer Portals)
+Sales Channel (hyra.apcoa.se)
+
+Onlinebokning: Försäljning av paket och produkter direkt till slutkund.
+
+Förbokning (Prebooking): Sökning på namn/e-post, spårning av orderstatus (Väntar på betalning, Betald).
+
+Mina Sidor: Se köplats, ändra kunduppgifter, säga upp kontrakt.
+
+CSC Frontend (Internt verktyg)
+
+Kundvy: CRM-information, kontrakthistorik och ärendehantering.
+
+Garage-setup: Konfiguration av priser, zoner och nyckelhantering.
+
+Manuell hantering: Skapa manuella erbjudanden och justera köplatser.
+
+6. Integrationer & API (Integrations & API)
+Externa System
+
+Navision / Business Central: Ekonomisystem för fakturering och bokföring.
+
+EPMP: System för kontrollavgifter och tillståndskontroll.
+
+SVEA: Betalväxel för kort och faktura.
+
+Microsoft 365: Provisionering av resursmailboxar för parkeringsplatser.
+
+API-tjänster
+
+Tredjeparts-API: OAuth 2.0-baserat API för korttids- och långtidsparkering.
+
+Corporate Accounts API: REST-API för företagskonton.
+
+AI Assistant API: Integration för AI-driven kundservice och FAQ.
+
+7. System, Drift & Rapportering (System, Ops & Reporting)
+Arkitektur & Komponenter
+
+Daemons: DB Daemon, Mail Daemon, Scheduler, EPMP Sync, Logic Internal.
+
+Loggning: Centraliserat ramverk (Syslog/JSON) för audit trail och felsökning.
+
+Underhåll
+
+Housekeeping: Automatisk rensning av gamla sessioner och arkivering av erbjudanden/kommentarer.
+
+Migration: Verktyg för att flytta anläggningar och kontrakt från Legacy-system till det nya paketbaserade SPS.
+
+Rapportering (Power BI)
+
+Kontraktöversikt: Detaljerad rapport över alla aktiva kontrakt.
+
+Garageöversikt: Rapport över zoner, områden och fastighetsägare.
+
+Audit-rapporter: Spårning av manuella ändringar i databasen.
+
+
+
+

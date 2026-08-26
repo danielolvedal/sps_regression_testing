@@ -1,0 +1,67 @@
+no nothing from the others
+ 
+but I also walked it through with Chris, Emel, Simon and Peter today, they were pretty happy
+ 
+We have a lot of ticket machines, you pay for the time you have parked. Then there is a grace time where you have to leave that premises. As you said, nothing different.
+ 
+sweet, I love it when I can simplify more
+ 
+I might send it with 5 and correct it to 4 for the meeting, see what conversation that provokes!!
+ 
+Love this
+ 
+Glad I could help throw a wrench into the works
+ 
+ 
+ 
+ 
+One other question for you - what system handles the enforcement for you (both from physical patrol and from ANPR?)
+ 
+3:d party. We are using a company called HOJAB. They are a debt collector and provides the enforcement tool for free as a part of their contract. The tool is called Octavius, an enforcement tool running on any standard mobile phone
+ 
+OK and so presumably we have some sort of portal to administer them?
+ 
+We are not legally allowed to issue enforcement based on ANPR.
+ 
+They provide a complete set of operational tools. I believe the administration portal goes under the somewhat obscure name ‘S3’.
+ 
+thanks
+ 
+but if people pay with Flow app or easypark then I guess we have to allow access to that data, so there is still an integration to do
+ 
+In Sweden that is already solved. So the 3:d party HOJAB has done the integration towards all major parking operator and payment methods. So that is not handled by us. So in Sweden that is already in place. 
+ 
+even for Flow payments?
+ 
+The integration towards Flow as far as I understand is in place for HOJAB and Gigant leap (used by Norway) and already in place for both GMP FLOW and P/E FLOW
+ 
+yeah so could be simple and no development needed. Nice
+ 
+Last week I attended a meeting where the discussion focused on the potential shutdown of GMP. During the meeting, Peter enthusiastically mentioned that Nicola had now approved the budget to build a new contract parking system for Germany. Could you please clarify the rationale from the C-suite perspective for deciding to develop a fourth contract parking system? Wasn’t our stated objective to consolidate platforms rather than expand them?
+ 
+What is so specific about the German market that it requires its own dedicated solution? We already have established contract parking systems in the UK, Norway, and Sweden—surely one of these could meet the German requirements with reasonable adaptations, instead of developing an entirely new system from the ground up.
+ 
+Historically, we used the same system as Germany. When the group discontinued the joint contract parking system initiative, we were all using the same platform. SPS is an evolution of that very system and already supports all the functionalities that Germany required at that time.
+ 
+That sounds like a question for Chris. I also suspect that it’s not quite like that. I will see what Chris thinks
+ 
+So this is a contract management system, being added to Salesforce
+ 
+We don’t have a contract management platform
+ 
+That is exactly the system we where using. This is what SPS replaced
+ 
+Ok well can you send over some details to Chris and I please? Even your colleagues in Norway are saying different things
+ 
+I have no idea what Norway is saying.
+ 
+But would it not be easier to start in the other end? What is required?
+ 
+They want to sunset SPS
+ 
+Norway has their own agenda
+ 
+Everyone does!! 😂
+ 
+Sunsetting SPS is interesting since Danmark is showing interest in having it. So clearly this is an agenda driven by Norway not entirely align with the business needs to either Sweden or Denmark
+ 

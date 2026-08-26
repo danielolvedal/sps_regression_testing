@@ -1,0 +1,101 @@
+SPS Funktionsträd – Utökad Specifikation 🌲
+1. Kontraktshantering & Juridisk Struktur (Contract & Legal)
+Kontraktstyper (H & T Logik)
+
+H-kontrakt (Hyresavtal): Primärt avtal för själva parkeringsytan. Kan vara med eller utan moms beroende på fastighetsägarens status (t.ex. momsbefriade BRF:er).
+
+T-kontrakt (Tilläggstjänster): Tjänster som tillhandahålls direkt av APCOA (t.ex. administration, bevakning). Dessa är alltid momsbelagda (25%).
+
+Kopplingslogik: Systemet hanterar synkronisering mellan H och T så att uppsägning eller ändring i huvudavtalet reflekteras i tillägget.
+
+Avtalsvillkor & Periodicitet
+
+Hyresperiod (Bindningstid): Konfigurerbara perioder (kalendermånad, kvartal, år).
+
+Uppsägningstid: Logik för att hantera lagstadgade eller avtalade uppsägningstider (t.ex. 1, 3 eller 9 månader).
+
+Förlängning: Automatisk förlängning (Extension period) om uppsägning ej sker innan uppsägningstidens början.
+
+Lagrum & Efterlevnad (Compliance)
+
+Jordabalken (12 kap. "Hyreslagen"): Hantering av besittningsskydd, uppsägningstider och formkrav för hyresavtal.
+
+Lag om kontrollavgift (1984:318): Grund för Octavius-integrationen och utfärdande av kontrollavgifter på tomtmark.
+
+Distansavtalslagen: Hantering av 14 dagars ångerrätt vid onlineköp via Sales Channel.
+
+Bokföringslagen & SKV: Krav på fakturaspecifikation (period, datum för parkering, korrekt momsredovisning per bolag).
+
+GDPR: Maskning av VRM-data och gallring av personuppgifter efter avslutat avtalsförhållande.
+
+2. CPS – Company Permit System (Personalparkering)
+Administrativa Nivåer
+
+L1 (SPS Admin): Huvudadministratör hos APCOA.
+
+L2 (Org-Admin): Toppnivå för externa organisationer (t.ex. Region Stockholm).
+
+L3 (Arbetsplats-Admin): Lokal administratör för specifika kontor eller sjukhus.
+
+L4 (Företags-Admin): Administration för underleverantörer eller specifika bolag inom en organisation.
+
+Funktionalitet
+
+Ansökningsflöde: Webbportal för anställda att ansöka om personaltillstånd.
+
+Verifiering: Stöd för HSA-ID (Regioner) eller manuell validering mot personalliggare.
+
+Registry Keys: Granulär styrning av rättigheter (t.ex. CPS_invite_org, CPS_create_workspace).
+
+Flow-integration: Digitala tillstånd som aktiveras direkt i Apcoa Flow-appen.
+
+3. Hotell- & Receptionstjänster (Hospitality Services)
+Gränssnitt
+
+Receptionsterminal: Webb-UI optimerat för tablets i hotellreceptioner.
+
+Självbetjäning: Gäster kan själva registrera sitt VRM vid incheckning.
+
+Affärslogik
+
+Hotelltjänst: Tidsbegränsade tillstånd kopplade till gästens vistelse.
+
+Poolad Receptionstjänst: Hantering av ett fast antal platser som delas av hotellets gäster (först till kvarn).
+
+Validering: Integration med Octavius för att visa status "Hotellservice" eller "Receptionstjänst" vid kontroll.
+
+4. Parkeringsplats & Anläggning (Space & Facility)
+Zon- & Platshantering
+
+DS-konfiguration: Mappning av DS-nummer mot fysiska zoner och fastighetsägare.
+
+Produkttyper: Separation av Boende, Personal, Besökare och Företag.
+
+Accesskontroll
+
+Digital Access: Integration med Accessy och Parakey.
+
+VRM-baserad access: Synkning mot kameror (LPR) för automatisk bomöppning.
+
+5. Ekonomi & Integration (Finance & ERP)
+Faktureringsmotor
+
+Business Central (Navision): Synkning av H- och T-rader med separata bokföringskonton.
+
+Outsourcing: Integration med SVEA och Billogram för fakturadistribution och kravhantering.
+
+Moms-split: Automatisk beräkning av moms på T-tjänster även om H-hyran är momsbefriad.
+
+6. Monitorering & Rapportering (BI & Ops)
+Power BI Dashboards
+
+1b: Zoner, områden och fastighetsägare.
+
+1c: Aktiverade DS online och kö-statistik.
+
+Systemdrift
+
+RabbitMQ: Asynkron hantering av kontraktshändelser och notifieringar.
+
+ConfigApi: Centraliserad hantering av miljöspecifika inställningar.
+
