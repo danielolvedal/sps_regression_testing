@@ -1,7 +1,8 @@
 const API_BASE = window.COPILOT_ADMIN_API_BASE || "";
-const POLL_MS = 5000;
+const POLL_MS = 1500;
 const CONSOLE_POLL_LIMIT = 24000;
 const MAX_CONSOLE_BUFFER = 200000;
+const CONSOLE_EVENT_LIMIT = 12000;
 const REQUIRED_EVENTS = new Set([
   "page_view",
   "api_request_started",
@@ -11,6 +12,7 @@ const REQUIRED_EVENTS = new Set([
   "mode_changed",
   "copilot_console_input_sent",
   "copilot_console_refreshed",
+  "copilot_console_rendered",
   "job_created",
   "job_opened",
   "report_opened",
@@ -39,6 +41,13 @@ const state = {
   lastDiode: "red",
   lastConsoleSignature: "",
   consoleSending: false,
+  consoleStartInProgress: false,
+  consoleEvents: null,
+  consoleEventsConnected: false,
+  lastAutoStartAttempt: 0,
+  lastConsoleEventAt: null,
+  lastConsoleInput: null,
+  lastConsoleRender: null,
   logs: [],
 };
 
@@ -55,6 +64,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindStartupControls();
   $$("[data-action='start-session'], #start-session-button").forEach((button) => button.addEventListener("click", () => startSession(button.id)));
   logEvent("page_view", { view: state.activeView });
+  connectCopilotConsoleEvents();
   refreshAll();
   setInterval(refreshStatusAndJobs, POLL_MS);
 });
@@ -67,6 +77,7 @@ function bindNavigation() {
       $$(".nav-item").forEach((item) => item.classList.toggle("active", item === button));
       $$(".view").forEach((panel) => panel.classList.toggle("active", panel.id === `view-${view}`));
       logEvent("page_view", { view });
+      if (view === "copilot") ensureCopilotSession();
     });
   });
 }
@@ -187,20 +198,29 @@ async function refreshAll() {
 }
 
 async function refreshStatusAndJobs() {
-  const consolePath = state.consoleCursor === null
-    ? `/api/copilot/console?limit=${CONSOLE_POLL_LIMIT}`
-    : `/api/copilot/console?cursor=${state.consoleCursor}&limit=${CONSOLE_POLL_LIMIT}`;
-  const [status, jobs, copilot, browser, consoleState] = await Promise.all([
+  const requests = [
     apiGet("/api/status", mockStatus),
     apiGet("/api/jobs", () => ({ jobs: state.jobs.length ? state.jobs : mockJobs() })),
-    apiGet("/api/session/copilot", () => state.status?.copilot_session || state.status?.copilot || {}),
-    apiGet("/api/session/browser", () => state.status?.browser_session || state.status?.browser || {}),
-    apiGet(consolePath, mockConsole),
-  ]);
+  ];
+  if (!state.consoleEventsConnected) {
+    const consolePath = state.consoleCursor === null
+      ? `/api/copilot/console?limit=${CONSOLE_POLL_LIMIT}`
+      : `/api/copilot/console?cursor=${state.consoleCursor}&limit=${CONSOLE_POLL_LIMIT}`;
+    requests.push(apiGet(consolePath, mockConsole));
+  }
+  const [status, jobs, consoleState] = await Promise.all(requests);
+  const copilot = status?.copilot_session || status?.copilot || {};
+  const browser = status?.browser_session || status?.browser || {};
   state.status = { ...status, copilot_session: copilot, browser_session: browser, copilot, browser };
   state.jobs = normalizeArray(jobs.jobs || jobs);
-  mergeConsoleState(consoleState);
+  if (consoleState) {
+    mergeConsoleState(consoleState);
+  } else if (state.console) {
+    state.console = { ...state.console, ...copilot };
+  }
   if (status?.mode) state.mode = status.mode;
+  if (isCopilotOnline(state.console || {})) state.consoleStartInProgress = false;
+  if (state.activeView === "copilot") ensureCopilotSession();
   renderAll();
 }
 
@@ -219,11 +239,32 @@ async function loadReports() {
   state.reports = normalizeArray(payload.reports || payload);
 }
 
-async function startSession(buttonId = "start-session-button") {
+async function startSession(buttonId = "start-session-button", options = {}) {
+  if (state.consoleStartInProgress) return null;
+  state.consoleStartInProgress = true;
+  renderCopilotConsole();
   logEvent("button_clicked", { button_id: buttonId, user_action: "start_session" });
-  const payload = await apiPost("/api/session/start", { hidden_window: !state.copilotWindowVisible });
-  if (payload?.job || payload?.job_id) addOrUpdateJob(payload.job || payload);
-  await refreshStatusAndJobs();
+  try {
+    const payload = await apiPost("/api/session/start", { hidden_window: !state.copilotWindowVisible, restart_existing: false });
+    if (payload?.job || payload?.job_id) addOrUpdateJob(payload.job || payload);
+    if (!options.skipRefresh) await refreshStatusAndJobs();
+    return payload;
+  } finally {
+    state.consoleStartInProgress = false;
+    renderCopilotConsole();
+  }
+}
+
+async function ensureCopilotSession() {
+  const consoleState = state.console || {};
+  if (isCopilotOnline(consoleState) || state.consoleStartInProgress) return;
+  if (consoleState.source === "injected") return;
+  const status = consoleState.status || "unknown";
+  if (!["missing", "not_running", "failed", "unavailable", "unknown", "mocked"].includes(status)) return;
+  const now = Date.now();
+  if (now - state.lastAutoStartAttempt < 15000) return;
+  state.lastAutoStartAttempt = now;
+  await startSession("copilot-auto-start");
 }
 
 async function createApiJob(path, body, fallbackFactory) {
@@ -246,20 +287,51 @@ async function sendCopilotConsoleInput(options = {}) {
   renderCopilotConsole();
   logEvent("button_clicked", { button_id: sourceButtonId, user_action: "send_copilot_console_input" });
   try {
-    const payload = await apiPost("/api/copilot/input", { text, submit, clear_line: clearLine });
+    const clientSentAt = new Date().toISOString();
+    state.lastConsoleInput = { text, submit, clear_line: clearLine, client_sent_at: clientSentAt };
+    const payload = await apiPost("/api/copilot/input", { text, submit, clear_line: clearLine, client_sent_at: clientSentAt });
     if (!payload?.accepted) {
       $("#copilot-console-hint").textContent = payload?.error || "Input kunde inte skickas.";
       return;
     }
+    state.lastConsoleInput = { ...state.lastConsoleInput, job_id: payload.job_id || null, accepted_at: payload.accepted_at || null, response: payload.response || null };
     if (payload.console) state.console = payload.console;
     if (payload.console) mergeConsoleState(payload.console);
     if (!hasExplicitText) input.value = "";
     logEvent("copilot_console_input_sent", { status: "queued", job_id: payload.job_id, details: payload });
-    await refreshStatusAndJobs();
+    $("#copilot-console-hint").textContent = "Skickat till Copilot.";
   } finally {
     state.consoleSending = false;
     renderCopilotConsole();
   }
+}
+
+function connectCopilotConsoleEvents() {
+  if (!("EventSource" in window) || state.consoleEvents) return;
+  const cursorParam = state.consoleCursor === null ? "" : `cursor=${encodeURIComponent(state.consoleCursor)}&`;
+  const url = `${API_BASE}/api/copilot/console/events?${cursorParam}limit=${CONSOLE_EVENT_LIMIT}`;
+  const events = new EventSource(url);
+  state.consoleEvents = events;
+  events.addEventListener("open", () => {
+    state.consoleEventsConnected = true;
+  });
+  events.addEventListener("console", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      state.lastConsoleEventAt = new Date().toISOString();
+      mergeConsoleState(payload);
+      if (isCopilotOnline(state.console || {})) state.consoleStartInProgress = false;
+      renderCopilotConsole();
+    } catch (error) {
+      logEvent("api_request_failed", { method: "SSE", path: "/api/copilot/console/events", error: error.message });
+    }
+  });
+  events.addEventListener("error", () => {
+    state.consoleEventsConnected = false;
+    events.close();
+    state.consoleEvents = null;
+    setTimeout(connectCopilotConsoleEvents, 1000);
+  });
 }
 
 function mergeConsoleState(consoleState) {
@@ -359,6 +431,8 @@ function renderCopilotConsole() {
   const isOnline = isCopilotOnline(consoleState);
   const rawOutput = isOnline
     ? (state.consoleTranscript || consoleState.transcript_tail || consoleState.last_output_tail || "Connected - waiting for Copilot output.")
+    : state.consoleStartInProgress
+    ? "Starting Copilot session - please wait..."
     : "Disconnected - please wait until Copilot is online";
   const output = formatCopilotTranscriptForDisplay(rawOutput);
   const outputHtml = copilotTranscriptToHtml(output);
@@ -366,24 +440,49 @@ function renderCopilotConsole() {
   const windowMatches = isOnline && windowExpected === state.copilotWindowVisible;
   const modelVerified = isOnline && Boolean(consoleState.model_verified && consoleState.model_hint);
   const permissionsVerified = isOnline && Boolean(consoleState.permissions_verified && consoleState.permissions_hint);
+  const projectVerified = isOnline && Boolean(consoleState.project_verified && consoleState.project_name);
+  const commandReady = isOnline && Boolean(consoleState.command_ready);
   setSemanticBadge($("#copilot-console-status"), `Status: ${status}${queue.pending ? ` · kö ${queue.pending}` : ""}`, statusBadgeTone(status, isOnline));
   setSemanticBadge($("#copilot-window-mode"), `Motor: ${state.copilotWindowVisible ? "synlig" : "osynlig"}`, windowMatches ? "green" : (isOnline ? "yellow" : "gray"));
   setSemanticBadge($("#copilot-console-model"), modelVerified ? `Modell: ${consoleState.model_hint}` : "Modell: ej verifierad", modelVerified ? "green" : (isOnline ? "yellow" : "gray"));
   setSemanticBadge($("#copilot-console-permissions"), permissionsVerified ? `Permissions: ${consoleState.permissions_hint}` : "Permissions: ej verifierad", permissionsVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#copilot-console-project"), projectVerified ? `Projekt: ${consoleState.project_name}` : "Projekt: okänt", projectVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#copilot-console-ready"), commandReady ? "Prompt: redo" : "Prompt: väntar", commandReady ? "green" : (isOnline ? "yellow" : "gray"));
   $("#copilot-console-send").textContent = state.consoleSending ? "Skickar..." : "Skicka";
   $("#copilot-console-send").disabled = state.consoleSending;
   $("#copilot-console-send-esc").disabled = state.consoleSending;
   $("#copilot-console-send-tab").disabled = state.consoleSending;
+  $("#copilot-start-session-button").textContent = state.consoleStartInProgress ? "Startar..." : "Starta Copilot-session";
+  $("#copilot-start-session-button").disabled = state.consoleStartInProgress;
   const outputElement = $("#copilot-console-output");
   const shouldStickToBottom = outputElement.scrollTop + outputElement.clientHeight >= outputElement.scrollHeight - 12;
   if (outputElement.dataset.renderedTranscript !== outputHtml) {
     outputElement.innerHTML = outputHtml;
     outputElement.dataset.renderedTranscript = outputHtml;
+    const renderedAt = new Date().toISOString();
+    const renderSnapshot = {
+      rendered_at: renderedAt,
+      status,
+      transcript_cursor: heartbeat.next_cursor ?? state.consoleCursor,
+      transcript_length: output.length,
+      streamed_at: consoleState.streamed_at || null,
+      server_timestamp: consoleState.server_timestamp || null,
+      last_output_chunk_at: consoleState.last_output_chunk_at || null,
+      last_output_sequence: consoleState.last_output_sequence ?? null,
+      project_name: consoleState.project_name || null,
+      permissions_verified: permissionsVerified,
+      command_ready: commandReady,
+      last_event_received_at: state.lastConsoleEventAt,
+      last_input: state.lastConsoleInput,
+    };
+    state.lastConsoleRender = renderSnapshot;
+    window.__copilotAdminLastConsoleRender = renderSnapshot;
+    logEvent("copilot_console_rendered", { status, transcript_cursor: renderSnapshot.transcript_cursor, transcript_length: output.length, rendered_at: renderedAt, streamed_at: renderSnapshot.streamed_at, last_output_chunk_at: renderSnapshot.last_output_chunk_at, command_ready: commandReady });
     if (shouldStickToBottom) outputElement.scrollTop = outputElement.scrollHeight;
   }
   $("#copilot-console-hint").textContent = consoleState.user_input_required
     ? "Copilot väntar på input."
-    : (state.consoleSending ? "Skickar till Copilot..." : "Redo.");
+    : (state.consoleStartInProgress ? "Startar eller återansluter Copilot-session..." : (state.consoleSending ? "Skickar till Copilot..." : "Redo."));
   const signature = `${status}|${Boolean(consoleState.user_input_required)}|${output.length}|${queue.pending || 0}|${heartbeat.next_cursor ?? ""}`;
   if (state.lastConsoleSignature !== signature) {
     state.lastConsoleSignature = signature;
@@ -777,7 +876,7 @@ function copilotTranscriptToHtml(text) {
     } else if (special === "question") {
       html.push(`<div class="copilot-line question">${escapeHtml(trimmed)}</div>`);
     } else if (special === "selected-option") {
-      html.push(`<div class="copilot-line selected-option">${escapeHtml(trimmed.replace(/^>\s*/, "❯ "))}</div>`);
+      html.push(`<div class="copilot-line selected-option">${escapeHtml(trimmed.replace(/^[>›]\s*/, "❯ "))}</div>`);
     } else if (special === "option") {
       html.push(`<div class="copilot-line option">${escapeHtml(trimmed)}</div>`);
     } else if (special === "navigation-hint") {
@@ -808,10 +907,12 @@ function isCopilotBorderLine(line) {
 
 function isCopilotTimerArtifact(line) {
   if (!line) return false;
-  const compact = line.replace(/\s+/g, "");
+  const compact = line.replace(/[◉◎○●∙·•⌛⠁-⣿\s]+/g, "");
   const timerMatches = compact.match(/\d+(?:m|s)/g) || [];
   const digitRuns = compact.match(/\d{4,}/g) || [];
-  return timerMatches.length >= 2 || digitRuns.length >= 2 || (/^[0-9ms/]+$/.test(compact) && compact.length > 8);
+  if (!compact && /[◉◎○●∙·•⌛⠁-⣿]/.test(line)) return true;
+  if (/Session:\s*\d+(?:\.\d+)?\s+AIC used/i.test(line)) return true;
+  return timerMatches.length >= 2 || digitRuns.length >= 2 || (/^[0-9ms/.:/]+$/.test(compact) && compact.length > 6);
 }
 
 function classifyCopilotLine(line) {
@@ -820,9 +921,9 @@ function classifyCopilotLine(line) {
   if (/^Run safe host-runner smoke tests\b/.test(line)) return "command-title";
   if (/^\$ErrorActionPreference=/.test(line) || /^\$targets\s*=/.test(line) || /^host-runner-/.test(line)) return "command-code";
   if (/^Do you want to run this command\?/.test(line)) return "question";
-  if (/^(❯|›|>)\s*1\.\s+/.test(line)) return "selected-option";
+  if (/^(❯|›|>)\s*\d+\.\s+/.test(line)) return "selected-option";
   if (/^\d+\.\s+/.test(line)) return "option";
-  if (/^↑\/↓\s+to navigate/.test(line)) return "navigation-hint";
+  if (/^↑\/↓\s+to (navigate|select)/.test(line) || /enter to (select|confirm)/.test(line)) return "navigation-hint";
   return null;
 }
 

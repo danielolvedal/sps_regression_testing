@@ -255,7 +255,20 @@ async function runInteractiveCopilot(options = {}) {
   let plainOutput = '';
   let inputText = '';
   let lastInjectedText = '';
+  let lastOutputChunkAt = null;
+  let lastOutputChunkBytes = 0;
+  let lastOutputSequence = 0;
+  let lastOutputTranscriptSize = 0;
+  let lastInputClientSentAt = null;
+  let lastInputBackendAcceptedAt = null;
+  let lastInputHostRunnerReceivedAt = null;
+  let lastInputHostRunnerQueuedAt = null;
+  let lastInputQueueFileSeenAt = null;
+  let lastInputPtyWriteAt = null;
+  let lastInputTraceId = null;
+  let lastInputJobId = null;
   let trustAccepted = false;
+  let trustAcceptanceSubmitted = false;
   let startupCommandsSent = false;
 
   fs.mkdirSync(sessionInputQueueDir, { recursive: true });
@@ -283,6 +296,18 @@ async function runInteractiveCopilot(options = {}) {
           user_input_required: userInputRequest.required,
           user_input_reason: userInputRequest.reason,
           last_output_tail: plainOutput.slice(-4000),
+          last_output_chunk_at: lastOutputChunkAt,
+          last_output_chunk_bytes: lastOutputChunkBytes,
+          last_output_sequence: lastOutputSequence,
+          last_output_transcript_size: lastOutputTranscriptSize,
+          last_input_client_sent_at: lastInputClientSentAt,
+          last_input_backend_queued_at: lastInputBackendAcceptedAt,
+          last_input_host_runner_received_at: lastInputHostRunnerReceivedAt,
+          last_input_host_runner_queued_at: lastInputHostRunnerQueuedAt,
+          last_input_queue_file_seen_at: lastInputQueueFileSeenAt,
+          last_input_pty_write_at: lastInputPtyWriteAt,
+          last_input_trace_id: lastInputTraceId,
+          last_input_job_id: lastInputJobId,
           last_input_tail: options.logInput ? inputText.slice(-1000) : null,
           last_injected_text: lastInjectedText,
           note: 'node-pty owns stdin/stdout and mirrors output to this terminal. Type here to send input to Copilot.',
@@ -319,6 +344,18 @@ async function runInteractiveCopilot(options = {}) {
         user_input_required: false,
         user_input_reason: null,
         last_output_tail: '',
+        last_output_chunk_at: null,
+        last_output_chunk_bytes: 0,
+        last_output_sequence: 0,
+        last_output_transcript_size: 0,
+        last_input_client_sent_at: null,
+        last_input_backend_queued_at: null,
+        last_input_host_runner_received_at: null,
+        last_input_host_runner_queued_at: null,
+        last_input_queue_file_seen_at: null,
+        last_input_pty_write_at: null,
+        last_input_trace_id: null,
+        last_input_job_id: null,
         last_input_tail: options.logInput ? '' : null,
         last_injected_text: '',
         note: 'node-pty owns stdin/stdout and mirrors output to this terminal. Type here to send input to Copilot.',
@@ -367,6 +404,10 @@ async function runInteractiveCopilot(options = {}) {
   term.onData((data) => {
     plainOutput += stripAnsi(data);
     fs.appendFileSync(sessionTranscriptPath, stripAnsi(data), 'utf8');
+    lastOutputChunkAt = utcStamp();
+    lastOutputChunkBytes = Buffer.byteLength(data, 'utf8');
+    lastOutputSequence += 1;
+    lastOutputTranscriptSize = Buffer.byteLength(plainOutput, 'utf8');
     writeSessionState();
     process.stdout.write(data);
   });
@@ -395,6 +436,7 @@ async function runInteractiveCopilot(options = {}) {
         const text = String(request.text ?? '');
         const submit = request.submit !== false;
         const clearLine = request.clear_line === true;
+        const queueFileSeenAt = utcStamp();
         if (!text) {
           logEvent('node_pty_interactive_injection_skipped', { file_path: filePath, reason: 'empty_text' });
           fs.renameSync(filePath, `${filePath}.skipped`);
@@ -406,13 +448,34 @@ async function runInteractiveCopilot(options = {}) {
         }
         const payload = submit ? `${text}\r` : text;
         term.write(payload);
+        const ptyWriteAt = utcStamp();
         lastInjectedText = String(request.display_text ?? text);
-        writeSessionState({ last_injected_at: utcStamp(), last_injected_submit: submit, last_injected_clear_line: clearLine });
+        lastInputClientSentAt = request.client_sent_at ?? null;
+        lastInputBackendAcceptedAt = request.backend_accepted_at ?? request.backend_queued_at ?? request.queued_at ?? null;
+        lastInputHostRunnerReceivedAt = request.host_runner_received_at ?? null;
+        lastInputHostRunnerQueuedAt = request.host_runner_queued_at ?? null;
+        lastInputQueueFileSeenAt = queueFileSeenAt;
+        lastInputPtyWriteAt = ptyWriteAt;
+        lastInputTraceId = request.trace_id ?? null;
+        lastInputJobId = request.job_id ?? null;
+        writeSessionState({
+          last_injected_at: ptyWriteAt,
+          last_injected_submit: submit,
+          last_injected_clear_line: clearLine,
+        });
         logEvent('node_pty_interactive_injection_sent', {
           file_path: filePath,
           byte_count: Buffer.byteLength(payload),
           submit,
           clear_line: clearLine,
+          client_sent_at: request.client_sent_at ?? null,
+          backend_accepted_at: request.backend_accepted_at ?? request.backend_queued_at ?? request.queued_at ?? null,
+          host_runner_received_at: request.host_runner_received_at ?? null,
+          host_runner_queued_at: request.host_runner_queued_at ?? null,
+          queue_file_seen_at: queueFileSeenAt,
+          pty_write_at: ptyWriteAt,
+          trace_id: request.trace_id ?? null,
+          job_id: request.job_id ?? null,
           text,
         });
         fs.renameSync(filePath, `${filePath}.done`);
@@ -420,19 +483,38 @@ async function runInteractiveCopilot(options = {}) {
     } catch (error) {
       logEvent('node_pty_interactive_injection_error', { message: error.message, stack: error.stack });
     }
-  }, 250);
+  }, 50);
   queueTimer.unref();
 
   const startupTimer = setInterval(() => {
     const recentOutput = plainOutput.slice(-4000);
     const userInputRequest = detectUserInputRequest(recentOutput);
-    if (!trustAccepted && userInputRequest.reason === 'directory_trust_prompt') {
-      term.write('1\r');
-      trustAccepted = true;
-      lastInjectedText = '1';
-      writeSessionState({ startup_trust_action: 'accepted_session_only', last_injected_at: utcStamp(), last_injected_submit: true });
-      logEvent('node_pty_startup_trust_accepted', { mode: 'session_only' });
+    if (userInputRequest.reason === 'directory_trust_prompt') {
+      if (!trustAcceptanceSubmitted) {
+        trustAcceptanceSubmitted = true;
+        term.write('\r');
+        lastInjectedText = '<ENTER>';
+        writeSessionState({
+          directory_trust_requested: true,
+          directory_trust_verified: false,
+          startup_trust_action: 'accepted_session_default_enter',
+          startup_policy_state: 'directory_trust_submitted',
+          last_injected_at: utcStamp(),
+          last_injected_submit: true,
+        });
+        logEvent('node_pty_startup_trust_submitted', { mode: 'session_default_enter' });
+      }
       return;
+    }
+    if (trustAcceptanceSubmitted && !trustAccepted) {
+      trustAccepted = true;
+      writeSessionState({
+        directory_trust_requested: true,
+        directory_trust_verified: true,
+        directory_trust_observed_at: utcStamp(),
+        startup_policy_state: 'directory_trust_accepted',
+      });
+      logEvent('node_pty_startup_trust_accepted', { mode: 'session_default_enter' });
     }
     if (startupCommandsSent || userInputRequest.required) {
       return;
@@ -457,13 +539,21 @@ async function runInteractiveCopilot(options = {}) {
     }
     startupCommandsSent = true;
     writeSessionState({
+      startup_model_requested: options.startupModel ?? null,
       startup_model: options.startupModel ?? null,
+      startup_allow_all_requested: Boolean(options.allowAll),
       startup_allow_all: Boolean(options.allowAll),
       startup_commands_sent: true,
+      allow_all_verified: Boolean(options.allowAll),
+      permissions_hint: options.allowAll ? 'allow-all' : null,
+      permissions_observed_at: options.allowAll ? utcStamp() : null,
+      model_verified: false,
+      current_model: null,
+      startup_policy_state: options.allowAll ? 'allow_all_sent' : 'startup_commands_sent',
       last_injected_at: utcStamp(),
       last_injected_submit: true,
     });
-  }, 1000);
+  }, 200);
   startupTimer.unref();
 }
 

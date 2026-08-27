@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -154,6 +155,50 @@ class BackendSmokeTests(unittest.TestCase):
         queue_bodies = [json.loads(path.read_text(encoding="utf-8")) for path in queue_dir.glob("*.json")]
         self.assertTrue(any(body["text"] == "\t" and body["clear_line"] is False and body["submit"] is False for body in queue_bodies))
 
+    def test_copilot_console_does_not_verify_permissions_from_requested_policy_only(self) -> None:
+        self.request(
+            "POST",
+            "/api/test/inject-host-state",
+            {
+                "copilot_state": {
+                    "status": "running",
+                    "running": True,
+                    "startup_allow_all": True,
+                    "startup_commands_sent": True,
+                    "startup_model": "gpt-5-mini",
+                    "input_queue_dir": str(app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "backend-policy-test-queue"),
+                }
+            },
+        )
+        status, console = self.request("GET", "/api/copilot/console")
+        self.assertEqual(status, 200)
+        self.assertFalse(console["permissions_verified"])
+        self.assertIsNone(console["permissions_hint"])
+        self.assertFalse(console["model_verified"])
+        self.assertIsNone(console["model_hint"])
+        self.assertEqual(console["configured_model"], "gpt-5-mini")
+        self.assertEqual(console["project_name"], "SPS")
+        self.assertFalse(console["command_ready"])
+
+        self.request(
+            "POST",
+            "/api/test/inject-host-state",
+            {
+                "copilot_state": {
+                    "status": "running",
+                    "running": True,
+                    "allow_all_verified": True,
+                    "permissions_hint": "allow-all",
+                    "input_queue_dir": str(app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "backend-policy-test-queue"),
+                }
+            },
+        )
+        status, verified = self.request("GET", "/api/copilot/console")
+        self.assertEqual(status, 200)
+        self.assertTrue(verified["permissions_verified"])
+        self.assertEqual(verified["permissions_hint"], "allow-all")
+        self.assertTrue(verified["command_ready"])
+
     def test_copilot_console_supports_cursor_based_transcript_polling(self) -> None:
         transcript = app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "backend-console-transcript.txt"
         transcript.parent.mkdir(parents=True, exist_ok=True)
@@ -184,6 +229,43 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(second["transcript"]["text"].replace("\r\n", "\n"), "line-3\n")
         self.assertGreater(second["transcript"]["next_cursor"], cursor)
 
+    def test_copilot_console_event_stream_delta_within_200ms(self) -> None:
+        transcript = app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "backend-console-sse-transcript.txt"
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        transcript.write_text("ready\n", encoding="utf-8")
+        cursor = transcript.stat().st_size
+        self.request(
+            "POST",
+            "/api/test/inject-host-state",
+            {
+                "copilot_state": {
+                    "status": "running",
+                    "running": True,
+                    "transcript_path": str(transcript),
+                    "input_queue_dir": str(transcript.parent / "backend-console-sse-queue"),
+                }
+            },
+        )
+        req = Request(f"http://127.0.0.1:{self.port}/api/copilot/console/events?cursor={cursor}&limit=1024", method="GET")
+        with urlopen(req, timeout=5) as response:
+            deadline = time.perf_counter() + 2.0
+            while time.perf_counter() < deadline:
+                if response.readline().decode("utf-8") == "\n":
+                    break
+            started = time.perf_counter()
+            with transcript.open("a", encoding="utf-8") as handle:
+                handle.write("sse-delta-line\n")
+            payload = ""
+            while time.perf_counter() - started < 2.0:
+                line = response.readline().decode("utf-8")
+                if line.startswith("data: "):
+                    payload += line.removeprefix("data: ").strip()
+                    if "sse-delta-line" in payload:
+                        break
+            elapsed = time.perf_counter() - started
+        self.assertIn("sse-delta-line", payload)
+        self.assertLess(elapsed, 0.2, "console SSE delta must arrive within 200 ms")
+
     def test_copilot_console_rejects_empty_or_unavailable_input(self) -> None:
         self.request("POST", "/api/test/reset", {})
         with self.assertRaises(HTTPError) as empty_ctx:
@@ -208,6 +290,7 @@ class BackendSmokeTests(unittest.TestCase):
 
     def test_local_node_pty_state_requires_live_wrapper_process(self) -> None:
         previous_env = os.environ.get("COPILOT_ADMIN_ENV")
+        previous_disable_default_runner = os.environ.get("COPILOT_ADMIN_DISABLE_DEFAULT_HOST_RUNNER")
         previous_state_path = app.NODE_PTY_STATE_PATH
         previous_state_dir = app.NODE_PTY_STATE_DIR
         previous_window_state_path = app.NODE_PTY_WINDOW_STATE_PATH
@@ -231,6 +314,7 @@ class BackendSmokeTests(unittest.TestCase):
         )
         window_state_path.write_text(json.dumps({"visible_window_expected": True}), encoding="utf-8")
         os.environ["COPILOT_ADMIN_ENV"] = "development"
+        os.environ["COPILOT_ADMIN_DISABLE_DEFAULT_HOST_RUNNER"] = "1"
         app.NODE_PTY_STATE_DIR = state_dir
         app.NODE_PTY_STATE_PATH = state_path
         app.NODE_PTY_WINDOW_STATE_PATH = window_state_path
@@ -249,6 +333,10 @@ class BackendSmokeTests(unittest.TestCase):
                 os.environ.pop("COPILOT_ADMIN_ENV", None)
             else:
                 os.environ["COPILOT_ADMIN_ENV"] = previous_env
+            if previous_disable_default_runner is None:
+                os.environ.pop("COPILOT_ADMIN_DISABLE_DEFAULT_HOST_RUNNER", None)
+            else:
+                os.environ["COPILOT_ADMIN_DISABLE_DEFAULT_HOST_RUNNER"] = previous_disable_default_runner
             app.NODE_PTY_STATE_DIR = previous_state_dir
             app.NODE_PTY_STATE_PATH = previous_state_path
             app.NODE_PTY_WINDOW_STATE_PATH = previous_window_state_path
@@ -356,6 +444,8 @@ class BackendSmokeTests(unittest.TestCase):
                 self.assertTrue(input_calls)
                 self.assertEqual(input_calls[-1]["body"]["text"], "frontend console smoke")
                 self.assertTrue(input_calls[-1]["body"]["clear_line"])
+                self.assertIn("trace_id", input_calls[-1]["body"])
+                self.assertIn("backend_accepted_at", input_calls[-1]["body"])
 
                 status, esc_input = local_request("POST", "/api/copilot/input", {"text": "\u001b", "submit": False, "clear_line": False})
                 self.assertEqual(status, 202)

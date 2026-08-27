@@ -271,7 +271,7 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
 
   q("nav-copilot").click();
   await waitFor(() => q("view-copilot").classList.contains("active"), "Copilot console view did not open.");
-  assert(q("copilot-console-output").textContent.includes("Browser E2E Copilot session is running."), "Copilot console should show transcript output.");
+  await waitFor(() => q("copilot-console-output").textContent.includes("Browser E2E Copilot session is running."), "Copilot console should show transcript output.");
   assert(getComputedStyle(q("copilot-console-output")).whiteSpace === "normal", "Copilot console should render semantic Copilot blocks rather than a raw terminal dump.");
   assert(q("copilot-console-output").querySelector(".copilot-line"), "Copilot console should render transcript lines as styled blocks.");
   assert(q("copilot-console-status").textContent.includes("running"), "Copilot console should show running status.");

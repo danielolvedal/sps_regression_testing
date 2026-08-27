@@ -1,6 +1,6 @@
 param(
     [switch]$LogInput,
-    [string]$StartupModel = 'gpt-5-mini',
+    [string]$StartupModel = '',
     [switch]$AllowAll = $true
 )
 

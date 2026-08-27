@@ -37,6 +37,9 @@ BROWSER_STATE_PATH = STATE_DIR / "collaborative-browser-session.json"
 NODE_PTY_START_WINDOW_SCRIPT = (
     RUNTIME_DIR / "windows" / "copilot-admin" / "node-pty" / "start-copilot-admin-node-pty-window.ps1"
 )
+NODE_PTY_START_SESSION_SCRIPT = (
+    RUNTIME_DIR / "windows" / "copilot-admin" / "node-pty" / "start-copilot-admin-node-pty-session.ps1"
+)
 NODE_PTY_SEND_INPUT_SCRIPT = (
     RUNTIME_DIR / "windows" / "copilot-admin" / "node-pty" / "send-copilot-admin-node-pty-input.ps1"
 )
@@ -231,28 +234,34 @@ def is_process_running(pid: Any) -> bool:
         return False
     if process_id <= 0:
         return False
-    if os.name == "nt":
-        completed = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                f"if (Get-Process -Id {process_id} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}",
-            ],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        return completed.returncode == 0
     try:
         os.kill(process_id, 0)
         return True
+    except PermissionError:
+        return True
     except OSError:
-        return False
+        pass
+    if os.name == "nt":
+        try:
+            completed = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    f"if (Get-Process -Id {process_id} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}",
+                ],
+                cwd=str(REPO_ROOT),
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return False
+        return completed.returncode == 0
+    return False
 
 
 def stop_process(pid: Any, timeout_seconds: int = 30) -> bool:
@@ -315,6 +324,50 @@ def run_powershell_script(script: Path, args: list[str] | None = None, timeout_s
     }
 
 
+def start_hidden_powershell_session(
+    script: Path,
+    args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    started_at = utc_now()
+    out_path = LOG_DIR / f"hidden-node-pty-session-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')}.out.log"
+    err_path = LOG_DIR / f"hidden-node-pty-session-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')}.err.log"
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(script),
+    ]
+    command.extend(args or [])
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    with out_path.open("a", encoding="utf-8") as stdout_handle, err_path.open("a", encoding="utf-8") as stderr_handle:
+        process = subprocess.Popen(
+            command,
+            cwd=str(REPO_ROOT),
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            env=env,
+            creationflags=creationflags,
+        )
+    return {
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "command": command,
+        "launcher_pid": process.pid,
+        "stdout_path": str(out_path),
+        "stderr_path": str(err_path),
+        "started_at": started_at,
+    }
+
+
 def json_from_stdout(result: dict[str, Any]) -> dict[str, Any] | None:
     stdout = result.get("stdout") or ""
     if not stdout:
@@ -357,9 +410,18 @@ def copilot_session_status() -> dict[str, Any]:
         "status": status,
         "running": wrapper_running,
         "visible_window_expected": visible_window_expected and (launcher_running or wrapper_running),
+        "startup_model_requested": state.get("startup_model_requested") or state.get("startup_model") or window_state.get("startup_model"),
         "startup_model": state.get("startup_model") or window_state.get("startup_model"),
+        "startup_allow_all_requested": bool(state.get("startup_allow_all_requested") or state.get("startup_allow_all") or window_state.get("startup_allow_all")),
         "startup_allow_all": bool(state.get("startup_allow_all") or window_state.get("startup_allow_all")),
         "startup_commands_sent": bool(state.get("startup_commands_sent")),
+        "allow_all_verified": bool(state.get("allow_all_verified")),
+        "permissions_hint": state.get("permissions_hint"),
+        "directory_trust_verified": bool(state.get("directory_trust_verified")),
+        "directory_trust_observed_at": state.get("directory_trust_observed_at"),
+        "model_verified": bool(state.get("model_verified")),
+        "current_model": state.get("current_model"),
+        "startup_policy_state": state.get("startup_policy_state"),
         "wrapper_pid": wrapper_pid,
         "launcher_pid": launcher_pid,
         "state_path": str(NODE_PTY_STATE_PATH),
@@ -385,9 +447,9 @@ def start_copilot_session(
     allow_all: bool = True,
     hidden_window: bool = False,
 ) -> dict[str, Any]:
+    env = os.environ.copy()
+    env["COPILOT_ADMIN_RUNNER_STATE_DIR"] = str(STATE_DIR)
     args: list[str] = []
-    if restart_existing:
-        args.append("-RestartExisting")
     if log_input:
         args.append("-LogInput")
     if startup_model:
@@ -395,11 +457,65 @@ def start_copilot_session(
     if allow_all:
         args.append("-AllowAll")
     if hidden_window:
-        args.append("-Hidden")
-    env = os.environ.copy()
-    env["COPILOT_ADMIN_RUNNER_STATE_DIR"] = str(STATE_DIR)
-    result = run_powershell_script(NODE_PTY_START_WINDOW_SCRIPT, args, timeout_seconds=45, env=env)
-    payload = json_from_stdout(result) or {}
+        if restart_existing:
+            stop_copilot_session()
+        else:
+            before = copilot_session_status()
+            if before.get("running") or is_process_running(before.get("launcher_pid")):
+                return {
+                    "status": "failed",
+                    "start_result": {
+                        "status": "already_running",
+                        "state_path": str(NODE_PTY_STATE_PATH),
+                        "window_state_path": str(NODE_PTY_WINDOW_STATE_PATH),
+                    },
+                    "stderr": "An existing hidden node-pty Copilot wrapper is already running. Re-run with restart_existing=true.",
+                    "copilot_session": before,
+                }
+        for path in (NODE_PTY_STATE_PATH, NODE_PTY_WINDOW_STATE_PATH, STATE_DIR / "node-pty-copilot-session-output.txt", STATE_DIR / "node-pty-copilot-session-input.txt"):
+            path.unlink(missing_ok=True)
+        result = start_hidden_powershell_session(NODE_PTY_START_SESSION_SCRIPT, args, env=env, timeout_seconds=20)
+        window_state = {
+            "status": "launcher_started",
+            "started_at": result["started_at"],
+            "updated_at": result["started_at"],
+            "launcher_pid": result["launcher_pid"],
+            "state_path": str(NODE_PTY_STATE_PATH),
+            "state_dir": str(STATE_DIR),
+            "session_command": str(NODE_PTY_START_SESSION_SCRIPT),
+            "input_logging_enabled": bool(log_input),
+            "startup_model": startup_model or "",
+            "startup_allow_all": bool(allow_all),
+            "hidden": True,
+            "visible_window_expected": False,
+            "stdout_path": result["stdout_path"],
+            "stderr_path": result["stderr_path"],
+        }
+        NODE_PTY_WINDOW_STATE_PATH.write_text(json.dumps(window_state, indent=2, ensure_ascii=False), encoding="utf-8")
+        deadline = time.time() + 20.0
+        while time.time() < deadline and not NODE_PTY_STATE_PATH.is_file():
+            if not is_process_running(result["launcher_pid"]):
+                break
+            time.sleep(0.25)
+        payload = {
+            "status": "started" if NODE_PTY_STATE_PATH.is_file() else "started_state_pending",
+            "launcher_pid": result["launcher_pid"],
+            "state_path": str(NODE_PTY_STATE_PATH),
+            "window_state_path": str(NODE_PTY_WINDOW_STATE_PATH),
+            "session_command": str(NODE_PTY_START_SESSION_SCRIPT),
+            "input_logging_enabled": bool(log_input),
+            "startup_model": startup_model or "",
+            "startup_allow_all": bool(allow_all),
+            "hidden": True,
+            "visible_window_expected": False,
+            "note": "The node-pty-owned Copilot CLI session is running in a hidden helper process. Use the frontend Copilot console for input/output.",
+        }
+    else:
+        if restart_existing:
+            args.append("-RestartExisting")
+        args.append("-Hidden:$false")
+        result = run_powershell_script(NODE_PTY_START_WINDOW_SCRIPT, args, timeout_seconds=45, env=env)
+        payload = json_from_stdout(result) or {}
     status = "started" if result["exit_code"] == 0 else "failed"
     log_event(
         "copilot_session_start_requested",
@@ -447,43 +563,93 @@ def stop_copilot_session(timeout_seconds: int = 30) -> dict[str, Any]:
     }
 
 
-def enqueue_copilot_input(text: str, submit: bool = True, dry_run: bool = False, clear_line: bool = False) -> dict[str, Any]:
+def enqueue_copilot_input(
+    text: str,
+    submit: bool = True,
+    dry_run: bool = False,
+    clear_line: bool = False,
+    job_id: str | None = None,
+    trace_id: str | None = None,
+    client_sent_at: str | None = None,
+    backend_accepted_at: str | None = None,
+) -> dict[str, Any]:
     session = copilot_session_status()
     if not dry_run and not session.get("running"):
         log_event(
             "job_failed",
             "host-runner",
-            {"reason": "copilot_session_not_running", "submit": submit},
+            {"reason": "copilot_session_not_running", "submit": submit, "job_id": job_id},
             level="warn",
             status="failed",
+            trace_id=trace_id,
+            job_id=job_id,
         )
         return {
             "status": "failed",
             "error": "No running node-pty Copilot session was found.",
             "copilot_session": session,
         }
-    args = ["-Text", text]
-    if not submit:
-        args.append("-NoSubmit")
-    if clear_line:
-        args.append("-ClearLine")
-    if dry_run:
-        args.append("-DryRun")
-    env = os.environ.copy()
-    env["COPILOT_ADMIN_RUNNER_STATE_DIR"] = str(STATE_DIR)
-    result = run_powershell_script(NODE_PTY_SEND_INPUT_SCRIPT, args, timeout_seconds=15, env=env)
-    payload = json_from_stdout(result) or {}
-    status = payload.get("status", "failed" if result["exit_code"] else "queued")
+    input_id = uuid.uuid4().hex
+    created_at = utc_now()
+    host_runner_received_at = utc_now()
+    queue_dir = NODE_PTY_INPUT_QUEUE_DIR
+    queue_dir.mkdir(parents=True, exist_ok=True)
+    file_name = f"input-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}-{uuid.uuid4().hex}.json"
+    file_path = queue_dir / file_name
+    payload = {
+        "input_id": input_id,
+        "created_at": created_at,
+        "text": f"{chr(21)}{text}" if clear_line else text,
+        "display_text": text,
+        "clear_line": bool(clear_line),
+        "submit": bool(submit),
+        "job_id": job_id,
+        "trace_id": trace_id,
+        "client_sent_at": client_sent_at,
+        "backend_accepted_at": backend_accepted_at,
+        "host_runner_received_at": host_runner_received_at,
+        "host_runner_queued_at": utc_now(),
+    }
+    if not dry_run:
+        file_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    status = "dry_run" if dry_run else "queued"
     log_event(
         "job_dispatched" if not dry_run else "job_dispatch_dry_run",
         "host-runner",
-        {"submit": submit, "dry_run": dry_run, "clear_line": clear_line, "exit_code": result["exit_code"], "input_id": payload.get("input_id")},
+        {
+            "submit": submit,
+            "dry_run": dry_run,
+            "clear_line": clear_line,
+            "input_id": input_id,
+            "input_path": None if dry_run else str(file_path),
+        },
         status=status,
+        trace_id=trace_id,
+        job_id=job_id,
     )
     return {
         "status": status,
-        "input": payload,
-        "stderr": result["stderr"],
+        "input": {
+            "status": status,
+            "input_id": input_id,
+            "input_path": None if dry_run else str(file_path),
+            "queue_dir": str(queue_dir),
+            "state_dir": str(STATE_DIR),
+            "state_path": str(NODE_PTY_STATE_PATH),
+            "session_state_exists": NODE_PTY_STATE_PATH.exists(),
+            "session_running": bool(session.get("running")),
+            "text_length": len(text),
+            "clear_line": bool(clear_line),
+            "submit": bool(submit),
+            "dry_run": bool(dry_run),
+            "job_id": job_id,
+            "trace_id": trace_id,
+            "client_sent_at": client_sent_at,
+            "backend_accepted_at": backend_accepted_at,
+            "host_runner_received_at": host_runner_received_at,
+            "host_runner_queued_at": payload["host_runner_queued_at"],
+        },
+        "stderr": "",
         "copilot_session": copilot_session_status(),
     }
 
@@ -603,6 +769,7 @@ def stop_browser_session(port: int | None = None, timeout_seconds: int = 30) -> 
 
 def start_admin_session(request: dict[str, Any]) -> dict[str, Any]:
     dry_run = bool(request.get("dry_run"))
+    skip_browser_start = bool(request.get("skip_browser_start"))
     existing_copilot = copilot_session_status()
     if dry_run:
         copilot = {
@@ -617,18 +784,26 @@ def start_admin_session(request: dict[str, Any]) -> dict[str, Any]:
             "copilot_session": existing_copilot,
         }
     else:
+        startup_model = request["startup_model"] if "startup_model" in request else "gpt-5-mini"
         copilot = start_copilot_session(
             restart_existing=bool(request.get("restart_existing")),
             log_input=bool(request.get("log_input")),
-            startup_model=str(request.get("startup_model") or "gpt-5-mini"),
+            startup_model=str(startup_model) if startup_model else None,
             allow_all=not bool(request.get("no_allow_all")),
             hidden_window=bool(request.get("hidden_window")),
         )
-    browser = start_browser_session(
-        port=int(request.get("port") or 9222),
-        reuse_existing=not bool(request.get("no_reuse_existing")),
-        dry_run=dry_run,
-    )
+    if skip_browser_start:
+        browser = {
+            "status": "skipped",
+            "reason": "Browser start is managed by the external Playwright harness for this session.",
+            "browser_session": browser_session_status(int(request.get("port") or 9222)),
+        }
+    else:
+        browser = start_browser_session(
+            port=int(request.get("port") or 9222),
+            reuse_existing=not bool(request.get("no_reuse_existing")),
+            dry_run=dry_run,
+        )
     status = "started"
     if dry_run:
         status = "dry_run"
@@ -925,10 +1100,11 @@ def handle_request(request: dict[str, Any], bridge: str = "direct") -> dict[str,
         elif action == "copilot-status":
             payload = copilot_session_status()
         elif action == "copilot-start":
+            startup_model = request["startup_model"] if "startup_model" in request else "gpt-5-mini"
             payload = start_copilot_session(
                 restart_existing=bool(request.get("restart_existing")),
                 log_input=bool(request.get("log_input")),
-                startup_model=request.get("startup_model") or "gpt-5-mini",
+                startup_model=str(startup_model) if startup_model else None,
                 allow_all=not bool(request.get("no_allow_all")),
                 hidden_window=bool(request.get("hidden_window")),
             )
@@ -941,6 +1117,10 @@ def handle_request(request: dict[str, Any], bridge: str = "direct") -> dict[str,
                 submit=submit,
                 dry_run=bool(request.get("dry_run")),
                 clear_line=bool(request.get("clear_line")),
+                job_id=str(request.get("job_id") or "") or None,
+                trace_id=str(request.get("trace_id") or "") or None,
+                client_sent_at=str(request.get("client_sent_at") or "") or None,
+                backend_accepted_at=str(request.get("backend_accepted_at") or "") or None,
             )
         elif action == "browser-status":
             payload = browser_session_status(

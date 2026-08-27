@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -12,6 +13,7 @@ from urllib.request import Request, urlopen
 REPO_ROOT = Path(__file__).resolve().parents[4]
 BACKEND_DIR = REPO_ROOT / "tools" / "source" / "copilot_admin_control_plane" / "backend"
 FRONTEND_DIR = REPO_ROOT / "tools" / "source" / "copilot_admin_control_plane" / "frontend"
+os.environ.setdefault("COPILOT_ADMIN_ENV", "test")
 sys.path.insert(0, str(BACKEND_DIR))
 import app  # noqa: E402
 
@@ -73,6 +75,8 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
             'data-testid="copilot-console-output"',
             'data-testid="copilot-console-input"',
             'data-testid="status-diode"',
+            'data-testid="copilot-console-project"',
+            'data-testid="copilot-console-ready"',
             'data-testid="mermaid-viewport"',
             'data-testid="report-reader"',
             'data-testid="frontend-log"',
@@ -80,8 +84,8 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
             self.assertIn(hook, html)
         for endpoint in [
             "/api/session/start",
-            "/api/session/copilot",
-            "/api/session/browser",
+            "/api/status",
+            "/api/jobs",
             "/api/copilot/console",
             "/api/copilot/input",
             "/api/regression/mermaid",
@@ -184,7 +188,7 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         status, queued = self.request("POST", "/api/copilot/input", {"text": "console e2e input"}, trace_id="console-e2e")
         elapsed = time.perf_counter() - started
         self.assertEqual(status, 202)
-        self.assertLess(elapsed, 1.0, "console input API must not wait for Copilot response")
+        self.assertLess(elapsed, 0.5, "console input API must enqueue within 500 ms")
         self.assertTrue(queued["accepted"])
         self.assertEqual(queued["target"], "local-node-pty")
         queue_dir = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "e2e-input-queue"

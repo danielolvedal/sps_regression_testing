@@ -12,13 +12,13 @@ Real Copilot E2E must use an isolated hidden Copilot engine session, not the pro
 
 | Evidence | Result |
 | --- | --- |
-| Backend unit/API suite | Passed, 10 tests including Copilot console input and cursor-based transcript polling. |
+| Backend unit/API suite | Passed, including Copilot console input, cursor-based transcript polling, SSE output latency and verified startup-policy semantics. |
 | Development E2E | Passed, 4 backend/control-plane tests plus 1 browser DOM-harness test through `test-e2e-dev.ps1`. |
 | Frontend static validation | Passed. |
 | Frontend Copilot console | Passed in browser E2E: user input is entered in frontend, queued to the same node-pty session, and transcript/status/user-input-required state is shown without using the raw CLI as input surface. |
 | Copilot engine visibility control | Passed in browser E2E: the engine window is visible by default, and the frontend toggle sends `hidden_window=true` only when the user chooses hidden mode before session start. |
 | Real isolated control-plane E2E | Uses an isolated hidden Copilot engine session and separate runner state directory; the strict console check verifies `/api/copilot/input` through host-runner and the exact node-pty input file `.done` marker. |
-| Copilot startup policy | Applied to the active session: `/model gpt-5-mini` changed the session model and `/allow-all` enabled all permissions. |
+| Copilot startup policy | The runner automatically requests session-only directory trust approval and `/allow-all`; UI badges may turn green only from verified runner/backend state. Model state is explicitly unverified unless the active Copilot session confirms it. |
 | Browser singleton | Verified through debug-port reuse on port `9222`; real-E2E did not start a second browser when the existing session was running. |
 | Regression B | Passed in Regression Mode and produced `test_reports\20260827v1`. |
 | Regression G | Verified failed in Regression Mode after B; report created at `test_reports\20260827v1\RegressionError01\report.md`. |
@@ -30,6 +30,8 @@ Real Copilot E2E must use an isolated hidden Copilot engine session, not the pro
 | Start the admin tool. | `test_startup_api_and_frontend_static_contract` verifies backend health and session-start API; `runtime\docker\copilot-admin\start-backend.ps1` is the documented startup command. | Real backend integration plus static frontend contract. |
 | Automatically start a shared visible Copilot window/session. | `test_startup_api_and_frontend_static_contract` injects a running node-pty state and verifies `/api/session/start` creates an asynchronous session job dispatched to the input queue. `runtime\test-copilot-admin-host-runner-status-input.ps1` verifies safe Copilot status and dry-run input queue behavior. `runtime\test-copilot-admin-host-runner-real-copilot.ps1` starts, observes and stops a real visible node-pty Copilot window for manual smoke validation. `runtime\docker\copilot-admin\test-real-visible-e2e.ps1` verifies full backend/runner integration through a hidden isolated test Copilot session. | Real backend integration, host-runner dry-run, real visible smoke and full real isolated E2E. |
 | Work with Copilot without typing in the unstable raw CLI window. | `GET /api/copilot/console` exposes status, heartbeat, input queue and cursor-based transcript deltas. `POST /api/copilot/input` queues direct console input asynchronously. `test_copilot_console_contract_input_and_logs` verifies backend behavior and log correlation; `test_frontend_in_real_browser` verifies the two-panel frontend console. | Real backend integration plus browser DOM-harness E2E; real visible E2E includes console input observation. |
+| See Copilot output quickly in the frontend console. | `GET /api/copilot/console/events` is the primary output channel. `test_copilot_console_event_stream_delta_within_200ms` appends transcript data in an isolated test harness and fails if the SSE delta takes 200 ms or more. Frontend static validation requires `EventSource` integration so the UI cannot rely on 5 second polling as the primary console-output path. | Backend latency regression plus static frontend contract. |
+| Send frontend console input quickly to Copilot. | `POST /api/copilot/input` returns after enqueue/dispatch and records client/backend timestamps. `test_copilot_console_contract_input_and_logs` fails if the backend enqueue path takes 500 ms or more; the node-pty wrapper polls the input queue every 50 ms and records queue-file and PTY-write timestamps for real-path verification. | Backend/control-plane latency regression with isolated node-pty queue instrumentation. |
 | Choose whether the Copilot engine window should be visible. | The dashboard exposes `copilot-window-visible-toggle`. Browser E2E verifies visible-by-default behavior and hidden-mode payload propagation to `/api/session/start`. Backend tests verify `hidden_window` is forwarded to host-runner. | Browser DOM-harness E2E plus backend fake-runner integration. |
 | Automatically start a shared visible browser window. | Injected browser state verifies backend/UI contract with debug port; `runtime\test-copilot-admin-host-runner-browser-start.ps1` verifies browser-status and dry-run collaborative-browser start path. `runtime\test-copilot-admin-host-runner-real-browser.ps1` starts, observes and stops a real visible collaborative browser on an isolated smoke port. `runtime\docker\copilot-admin\test-real-visible-e2e.ps1` verifies reuse of the existing collaborative browser. | Real backend integration, host-runner dry-run, real visible smoke and full real visible E2E. |
 | See all regression tests and their Mermaid relationships. | `test_mermaid_reports_user_input_required_and_log_correlation` reads real `testing\regression_test\regression-test-catalog.md` and real `regression-test-dependencies.mmd`. | Real backend/repository integration. |
@@ -50,6 +52,7 @@ Real Copilot E2E must use an isolated hidden Copilot engine session, not the pro
 | Can frontend, backend and runner be correlated with the same ID? | Backend/frontend correlation is verified by trace ID in JSONL; real host-runner and node-pty logs expose compatible `trace_id`/`job_id` fields and are exercised by real visible E2E. |
 | Is Mermaid verified with a large diagram? | The real repository Mermaid source is verified and browser DOM-harness E2E verifies zoom/pan/scroll/fit/reset/search controls. |
 | Is asynchronicity verified? | Yes. E2E asserts session/regression APIs return immediately and status diode moves through yellow/green/red lifecycle states. |
+| Are latency requirements verified? | Yes. Copilot console output must reach the SSE event stream within 200 ms in the deterministic backend harness, and frontend console input must be accepted/enqueued within 500 ms in dev-E2E. Node-pty writes input queue files to PTY on a 50 ms poll cycle and stores injection timestamps for real E2E analysis. |
 | Can a long-running Copilot session be observed without repeatedly re-reading the whole transcript? | Yes. The console API supports `cursor` and `limit`, returns transcript `next_cursor`, size and heartbeat metadata, and backend tests verify tail-then-delta polling. Frontend keeps a bounded local transcript buffer. |
 | Is the Windows input queue JSON safe for node-pty over long runs? | Yes. The queue writer uses UTF-8 without BOM because Node `JSON.parse` rejected PowerShell's BOM-prefixed UTF-8 files during strict real-E2E. |
 
@@ -84,6 +87,23 @@ Corrected acceptance rules:
 - reuse a running Copilot session unless a controlled restart is explicitly requested
 - reuse the first collaborative browser window and open additional work in tabs through the existing debug port
 - never run separate real-smoke startup and full real-E2E startup in the same sequence if they target the same visible session
-- apply Copilot startup policy once per new session: `gpt-5-mini`, `/allow-all`, and session-only folder trust approval when prompted
+- apply Copilot startup policy once per new session: `/allow-all` and session-only folder trust approval when prompted; model badges must stay unverified unless the current model is actually observed from the session
 
 Any future "passed" result for full real visible E2E is invalid unless it proves this singleton behavior.
+
+## Copilot-console latency and badge requirements
+
+Green means verified. Yellow means requested, pending or unknown. Red/gray means missing, disconnected or unavailable. The frontend must not show `Status`, `Motor`, `Modell` or `Permissions` as green from configuration intent alone.
+
+Hard latency requirements:
+
+- Copilot output produced by the owned node-pty/transcript path must be visible through the frontend's primary console stream within 200 ms.
+- Input submitted from the frontend Copilot console must be accepted by backend and handed to host-runner or the isolated node-pty queue within 500 ms.
+- Frontend console output must use SSE (`/api/copilot/console/events`) as the primary live transport. Periodic polling may remain only as status/recovery fallback.
+- The node-pty input queue poll interval must remain fast enough for the 500 ms path; the current regression-protected value is 50 ms.
+
+Startup-policy requirements:
+
+- If Copilot prompts for current-directory/session trust, the runner may automatically approve that current working directory for the active session. It must not silently grant permanent/global trust.
+- `/allow-all` must be requested automatically for a new controlled session, but the UI may show `Permissions: allow-all` as green only when runner/backend state says it was actually applied/sent for that session.
+- Model state must remain `ej verifierad` unless the active Copilot session itself confirms the current model. A configured startup model, including `gpt-5-mini`, is only a request and must not turn the model badge green.

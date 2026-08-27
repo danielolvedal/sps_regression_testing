@@ -2,7 +2,7 @@ param(
     [switch]$LogInput,
     [switch]$RestartExisting,
     [int]$CloseTimeoutSeconds = 30,
-    [string]$StartupModel = 'gpt-5-mini',
+    [string]$StartupModel = '',
     [switch]$AllowAll = $true,
     [switch]$Hidden
 )

@@ -27,6 +27,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\decissions\0003-copilot-admin-bridge-evaluation.md` - Fastställer hur HTTP-API, filkö och named pipe ska testas mot samma praktiska case innan första Copilot-admin bridge-val låses.
 - `tools\docs\road-map\README.md` - Beskriver vad framtida verktygs-roadmaps ska innehålla.
 - `tools\docs\road-map\copilot-admin-control-plane.md` - Roadmap för en Docker-hostad control plane med Windows-runner, Copilot CLI och operativt stöd för SPS-regressioner.
+- `tools\docs\road-map\copilot-console-latency-layout-startup-plan.md` - Fleet-färdig plan för Copilot-konsolens startup-policy, latencykrav, layoutparitet, regressioner och integration.
 - `tools\docs\decissions\README.md` - Beskriver vilka typer av verktygsbeslut som ska lagras i beslutskatalogen.
 
 ## Runtime och källkod för verktyg

@@ -74,6 +74,7 @@ $RequiredEndpoints = @(
     "/api/session/copilot",
     "/api/session/browser",
     "/api/copilot/console",
+    "/api/copilot/console/events",
     "/api/copilot/input",
     "/api/regression/tests",
     "/api/regression/mermaid",
@@ -111,6 +112,12 @@ if (-not $Js.Contains("Disconnected - please wait until Copilot is online")) {
 }
 if (-not $Js.Contains("setSemanticBadge")) {
     $Failures.Add("Missing semantic Copilot badge renderer.")
+}
+if (-not $Js.Contains("new EventSource") -or -not $Js.Contains("connectCopilotConsoleEvents")) {
+    $Failures.Add("Missing Server-Sent Events integration for low-latency Copilot console output.")
+}
+if (-not $Js.Contains("client_sent_at")) {
+    $Failures.Add("Missing client-side input latency timestamp.")
 }
 
 foreach ($Phrase in @("status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "copilot-console-output", "copilot-console-form", "copilot-console-special-actions")) {
