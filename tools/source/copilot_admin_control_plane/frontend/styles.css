@@ -94,6 +94,27 @@ textarea {
   background: rgba(255, 255, 255, 0.07);
   color: var(--muted);
 }
+.semantic-badge { font-weight: 700; }
+.semantic-green {
+  border-color: rgba(40, 200, 64, 0.62);
+  background: rgba(40, 200, 64, 0.14);
+  color: #86efac;
+}
+.semantic-yellow {
+  border-color: rgba(255, 189, 46, 0.62);
+  background: rgba(255, 189, 46, 0.15);
+  color: #fde68a;
+}
+.semantic-red {
+  border-color: rgba(255, 95, 87, 0.62);
+  background: rgba(255, 95, 87, 0.14);
+  color: #fca5a5;
+}
+.semantic-gray {
+  border-color: rgba(148, 163, 184, 0.36);
+  background: rgba(148, 163, 184, 0.1);
+  color: #cbd5e1;
+}
 .status-diode {
   --diode-color: var(--red);
   display: inline-flex;
@@ -290,6 +311,15 @@ textarea {
   font-weight: 700;
 }
 .copilot-line.plain { color: #f2f6fb; }
+.copilot-line.disconnected {
+  display: grid;
+  min-height: 20vh;
+  place-items: center;
+  color: #fca5a5;
+  font-size: 1.1rem;
+  font-weight: 800;
+  text-align: center;
+}
 .copilot-console-form {
   display: grid;
   gap: 0.55rem;

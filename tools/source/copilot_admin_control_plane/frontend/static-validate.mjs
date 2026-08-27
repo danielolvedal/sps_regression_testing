@@ -19,8 +19,11 @@ const requiredTestIds = [
   "copilot-console-send",
   "copilot-console-send-esc",
   "copilot-console-send-tab",
+  "copilot-start-session-button",
   "copilot-console-status",
   "copilot-window-mode",
+  "copilot-console-model",
+  "copilot-console-permissions",
   "learning-mode-button",
   "testing-mode-button",
   "view-regressioner",
@@ -94,7 +97,9 @@ for (const endpoint of requiredEndpoints) {
 }
 if (!js.includes("hidden_window")) failures.push("Missing Copilot window visibility payload.");
 if (!js.includes("clear_line")) failures.push("Missing Copilot console clear-line payload.");
-for (const phrase of ["status-red", "status-yellow", "status-green", "mermaid-viewport", "markdown-reader", "copilot-console-output", "copilot-console-form", "copilot-console-special-actions"]) {
+if (!js.includes("Disconnected - please wait until Copilot is online")) failures.push("Missing disconnected Copilot console empty state.");
+if (!js.includes("setSemanticBadge")) failures.push("Missing semantic Copilot badge renderer.");
+for (const phrase of ["status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "copilot-console-output", "copilot-console-form", "copilot-console-special-actions"]) {
   if (!css.includes(phrase)) failures.push(`Missing CSS affordance: ${phrase}`);
 }
 if (!js.includes("setInterval(refreshStatusAndJobs, POLL_MS)")) {

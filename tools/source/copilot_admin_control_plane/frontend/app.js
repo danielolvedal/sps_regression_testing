@@ -53,7 +53,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindCopilotConsole();
   bindReportFilter();
   bindStartupControls();
-  $("#start-session-button").addEventListener("click", () => startSession());
+  $$("[data-action='start-session'], #start-session-button").forEach((button) => button.addEventListener("click", () => startSession(button.id)));
   logEvent("page_view", { view: state.activeView });
   refreshAll();
   setInterval(refreshStatusAndJobs, POLL_MS);
@@ -219,8 +219,8 @@ async function loadReports() {
   state.reports = normalizeArray(payload.reports || payload);
 }
 
-async function startSession() {
-  logEvent("button_clicked", { button_id: "start-session-button", user_action: "start_session" });
+async function startSession(buttonId = "start-session-button") {
+  logEvent("button_clicked", { button_id: buttonId, user_action: "start_session" });
   const payload = await apiPost("/api/session/start", { hidden_window: !state.copilotWindowVisible });
   if (payload?.job || payload?.job_id) addOrUpdateJob(payload.job || payload);
   await refreshStatusAndJobs();
@@ -356,13 +356,20 @@ function renderCopilotConsole() {
   const status = consoleState.status || "unknown";
   const queue = consoleState.input_queue || {};
   const heartbeat = consoleState.heartbeat || {};
-  const rawOutput = state.consoleTranscript || consoleState.transcript_tail || consoleState.last_output_tail || "Inget transcript ännu. Starta adminsessionen eller vänta på Copilot-output.";
+  const isOnline = isCopilotOnline(consoleState);
+  const rawOutput = isOnline
+    ? (state.consoleTranscript || consoleState.transcript_tail || consoleState.last_output_tail || "Connected - waiting for Copilot output.")
+    : "Disconnected - please wait until Copilot is online";
   const output = formatCopilotTranscriptForDisplay(rawOutput);
   const outputHtml = copilotTranscriptToHtml(output);
-  $("#copilot-console-status").textContent = `Status: ${status}${queue.pending ? ` · kö ${queue.pending}` : ""}`;
-  $("#copilot-window-mode").textContent = `Motor: ${state.copilotWindowVisible ? "synlig" : "osynlig"}`;
-  $("#copilot-console-model").textContent = `Model: ${consoleState.model_hint || "gpt-5-mini"}`;
-  $("#copilot-console-permissions").textContent = `Permissions: ${consoleState.permissions_hint || "allow-all"}`;
+  const windowExpected = Boolean(consoleState.visible_window_expected);
+  const windowMatches = isOnline && windowExpected === state.copilotWindowVisible;
+  const modelVerified = isOnline && Boolean(consoleState.model_verified && consoleState.model_hint);
+  const permissionsVerified = isOnline && Boolean(consoleState.permissions_verified && consoleState.permissions_hint);
+  setSemanticBadge($("#copilot-console-status"), `Status: ${status}${queue.pending ? ` · kö ${queue.pending}` : ""}`, statusBadgeTone(status, isOnline));
+  setSemanticBadge($("#copilot-window-mode"), `Motor: ${state.copilotWindowVisible ? "synlig" : "osynlig"}`, windowMatches ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#copilot-console-model"), modelVerified ? `Modell: ${consoleState.model_hint}` : "Modell: ej verifierad", modelVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#copilot-console-permissions"), permissionsVerified ? `Permissions: ${consoleState.permissions_hint}` : "Permissions: ej verifierad", permissionsVerified ? "green" : (isOnline ? "yellow" : "gray"));
   $("#copilot-console-send").textContent = state.consoleSending ? "Skickar..." : "Skicka";
   $("#copilot-console-send").disabled = state.consoleSending;
   $("#copilot-console-send-esc").disabled = state.consoleSending;
@@ -382,6 +389,23 @@ function renderCopilotConsole() {
     state.lastConsoleSignature = signature;
     logEvent("copilot_console_refreshed", { status, user_input_required: Boolean(consoleState.user_input_required), transcript_length: output.length, transcript_cursor: heartbeat.next_cursor ?? state.consoleCursor });
   }
+}
+
+function isCopilotOnline(consoleState) {
+  const status = consoleState.status || "unknown";
+  return Boolean(consoleState.running) || ["running", "user_input_required"].includes(status);
+}
+
+function statusBadgeTone(status, isOnline) {
+  if (isOnline) return "green";
+  if (["starting", "queued", "unknown", "mocked"].includes(status)) return "yellow";
+  if (["missing", "not_running", "failed", "unavailable"].includes(status)) return "red";
+  return "gray";
+}
+
+function setSemanticBadge(element, text, tone) {
+  element.textContent = text;
+  element.className = `pill semantic-badge semantic-${tone}`;
 }
 
 function renderTests() {
@@ -758,6 +782,8 @@ function copilotTranscriptToHtml(text) {
       html.push(`<div class="copilot-line option">${escapeHtml(trimmed)}</div>`);
     } else if (special === "navigation-hint") {
       html.push(`<div class="copilot-line navigation-hint">${escapeHtml(trimmed)}</div>`);
+    } else if (trimmed.startsWith("Disconnected -")) {
+      html.push(`<div class="copilot-line disconnected">${escapeHtml(trimmed)}</div>`);
     } else if (inThought) {
       html.push(`<div class="copilot-line thought-body">${escapeHtml(trimmed)}</div>`);
     } else {
@@ -988,8 +1014,10 @@ function mockConsole() {
     transcript: { mode: "fallback_tail", text: "Copilot-konsolen kör i mockläge tills backend/host-runner svarar.", cursor: null, next_cursor: 66, size: 66, truncated: false },
     heartbeat: { next_cursor: 66, transcript_size: 66, server_timestamp: new Date().toISOString() },
     input_queue: { pending: 0 },
-    model_hint: "gpt-5-mini",
-    permissions_hint: "allow-all",
+    model_hint: null,
+    model_verified: false,
+    permissions_hint: null,
+    permissions_verified: false,
     user_input_required: false,
   };
 }

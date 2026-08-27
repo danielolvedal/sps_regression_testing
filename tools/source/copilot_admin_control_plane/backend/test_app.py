@@ -206,6 +206,53 @@ class BackendSmokeTests(unittest.TestCase):
             self.request("POST", "/api/copilot/input", {"text": "must-not-reach-production-queue"})
         self.assertEqual(missing_ctx.exception.code, 409)
 
+    def test_local_node_pty_state_requires_live_wrapper_process(self) -> None:
+        previous_env = os.environ.get("COPILOT_ADMIN_ENV")
+        previous_state_path = app.NODE_PTY_STATE_PATH
+        previous_state_dir = app.NODE_PTY_STATE_DIR
+        previous_window_state_path = app.NODE_PTY_WINDOW_STATE_PATH
+        state_dir = app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "backend-stale-state-test"
+        state_dir.mkdir(parents=True, exist_ok=True)
+        state_path = state_dir / "node-pty-copilot-session.json"
+        window_state_path = state_dir / "node-pty-copilot-window.json"
+        queue_dir = state_dir / "queue"
+        queue_dir.mkdir(exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "status": "running",
+                    "running": True,
+                    "wrapper_pid": 99999999,
+                    "input_queue_dir": str(queue_dir),
+                    "last_output_tail": "stale transcript",
+                }
+            ),
+            encoding="utf-8",
+        )
+        window_state_path.write_text(json.dumps({"visible_window_expected": True}), encoding="utf-8")
+        os.environ["COPILOT_ADMIN_ENV"] = "development"
+        app.NODE_PTY_STATE_DIR = state_dir
+        app.NODE_PTY_STATE_PATH = state_path
+        app.NODE_PTY_WINDOW_STATE_PATH = window_state_path
+        try:
+            backend = app.ControlPlaneBackend(app.REPO_ROOT)
+            console = backend.copilot_console()
+            self.assertEqual(console["status"], "not_running")
+            self.assertFalse(console["running"])
+            self.assertFalse(console["visible_window_expected"])
+            with self.assertRaises(app.ApiError) as ctx:
+                backend.send_copilot_console_input({"text": "must-not-queue"})
+            self.assertEqual(ctx.exception.status_code, 409)
+            self.assertEqual([], list(queue_dir.glob("*.json")))
+        finally:
+            if previous_env is None:
+                os.environ.pop("COPILOT_ADMIN_ENV", None)
+            else:
+                os.environ["COPILOT_ADMIN_ENV"] = previous_env
+            app.NODE_PTY_STATE_DIR = previous_state_dir
+            app.NODE_PTY_STATE_PATH = previous_state_path
+            app.NODE_PTY_WINDOW_STATE_PATH = previous_window_state_path
+
     def test_report_path_traversal_rejected(self) -> None:
         with self.assertRaises(HTTPError) as ctx:
             self.request("GET", "/api/reports/..%5Csecret.md")

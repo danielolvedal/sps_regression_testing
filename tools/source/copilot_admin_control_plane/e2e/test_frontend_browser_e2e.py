@@ -154,6 +154,7 @@ class FrontendBrowserE2ETests(unittest.TestCase):
                     "input_queue_dir": str(queue_dir),
                     "input_queue": {"pending": 0},
                     "user_input_required": False,
+                    "visible_window_expected": True,
                     "last_output_tail": "Browser E2E Copilot session is running.",
                 },
                 "browser_state": {"status": "running", "browser_id": "browser-e2e", "debug_port": 9222},
@@ -264,6 +265,9 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
     const jobs = (await fetch("/api/jobs").then((r) => r.json())).jobs;
     return jobs.some((job) => job.type === "session_start" && job.payload && job.payload.hidden_window === true);
   }, "Session start should send hidden_window=true when the UI toggle is off.");
+  q("copilot-window-visible-toggle").click();
+  q("copilot-window-visible-toggle").dispatchEvent(new Event("change", { bubbles: true }));
+  assert(q("copilot-window-visible-toggle").checked, "Copilot window visibility toggle should switch back to visible mode.");
 
   q("nav-copilot").click();
   await waitFor(() => q("view-copilot").classList.contains("active"), "Copilot console view did not open.");
@@ -271,10 +275,37 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
   assert(getComputedStyle(q("copilot-console-output")).whiteSpace === "normal", "Copilot console should render semantic Copilot blocks rather than a raw terminal dump.");
   assert(q("copilot-console-output").querySelector(".copilot-line"), "Copilot console should render transcript lines as styled blocks.");
   assert(q("copilot-console-status").textContent.includes("running"), "Copilot console should show running status.");
-  assert(q("copilot-console-model").textContent.includes("gpt-5-mini"), "Copilot console should show startup model.");
-  assert(q("copilot-console-permissions").textContent.includes("allow-all"), "Copilot console should show permission policy.");
+  assert(q("copilot-console-status").className.includes("semantic-green"), "Running Copilot status should be a green verified badge.");
+  assert(q("copilot-window-mode").className.includes("semantic-green"), "Visible Copilot engine badge should be green only when running state confirms it.");
+  assert(q("copilot-console-model").textContent.includes("ej verifierad"), "Copilot model badge should not claim gpt-5-mini until verified.");
+  assert(!q("copilot-console-model").className.includes("semantic-green"), "Unverified Copilot model badge must not be green.");
+  assert(q("copilot-console-permissions").textContent.includes("ej verifierad"), "Copilot permissions badge should be explicit when not verified.");
+  assert(!q("copilot-console-permissions").className.includes("semantic-green"), "Unverified permissions badge must not be green.");
   assert(q("copilot-console-input").placeholder === "Skriv din prompt här", "Copilot input placeholder should be user-facing.");
   assert(!document.body.textContent.includes("Ingen fokuskonflikt"), "Copilot console should not show developer-only focus comments.");
+  await fetch("/api/test/inject-host-state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ copilot_state: { status: "not_running", running: false, user_input_required: false, last_output_tail: "" } })
+  });
+  await waitFor(() => q("copilot-console-output").textContent.includes("Disconnected - please wait until Copilot is online"), "Disconnected Copilot console should show explicit empty state.");
+  assert(q("copilot-console-output").querySelector(".disconnected"), "Disconnected empty state should have dedicated styling.");
+  await fetch("/api/test/inject-host-state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      copilot_state: {
+        status: "running",
+        session_id: "browser-e2e-copilot",
+        input_queue_dir: "C:\\\\Copilot_projects\\\\SPS\\\\tmp\\\\copilot_admin_control_plane\\\\browser-e2e-input-queue",
+        input_queue: { pending: 0 },
+        user_input_required: false,
+        visible_window_expected: true,
+        last_output_tail: "Browser E2E Copilot session is running."
+      }
+    })
+  });
+  await waitFor(() => q("copilot-console-output").textContent.includes("Browser E2E Copilot session is running."), "Copilot console should reconnect to transcript output.");
   q("copilot-console-input").value = "browser e2e console input";
   q("copilot-console-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   await waitFor(() => q("copilot-console-input").value === "", "Copilot console input should clear after queued send.");

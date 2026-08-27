@@ -175,8 +175,10 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(console["status"], "running")
         self.assertIn("E2E injected Copilot session", console["transcript_tail"])
-        self.assertEqual(console["model_hint"], "gpt-5-mini")
-        self.assertEqual(console["permissions_hint"], "allow-all")
+        self.assertIsNone(console["model_hint"])
+        self.assertFalse(console["model_verified"])
+        self.assertIsNone(console["permissions_hint"])
+        self.assertFalse(console["permissions_verified"])
 
         started = time.perf_counter()
         status, queued = self.request("POST", "/api/copilot/input", {"text": "console e2e input"}, trace_id="console-e2e")

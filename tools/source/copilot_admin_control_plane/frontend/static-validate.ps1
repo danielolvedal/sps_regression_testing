@@ -20,8 +20,11 @@ $RequiredTestIds = @(
     "copilot-console-send",
     "copilot-console-send-esc",
     "copilot-console-send-tab",
+    "copilot-start-session-button",
     "copilot-console-status",
     "copilot-window-mode",
+    "copilot-console-model",
+    "copilot-console-permissions",
     "learning-mode-button",
     "testing-mode-button",
     "view-regressioner",
@@ -103,7 +106,14 @@ if (-not $Js.Contains("hidden_window")) {
 if (-not $Js.Contains("clear_line")) {
     $Failures.Add("Missing Copilot console clear-line payload.")
 }
-foreach ($Phrase in @("status-red", "status-yellow", "status-green", "mermaid-viewport", "markdown-reader", "copilot-console-output", "copilot-console-form", "copilot-console-special-actions")) {
+if (-not $Js.Contains("Disconnected - please wait until Copilot is online")) {
+    $Failures.Add("Missing disconnected Copilot console empty state.")
+}
+if (-not $Js.Contains("setSemanticBadge")) {
+    $Failures.Add("Missing semantic Copilot badge renderer.")
+}
+
+foreach ($Phrase in @("status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "copilot-console-output", "copilot-console-form", "copilot-console-special-actions")) {
     if (-not $Css.Contains($Phrase)) {
         $Failures.Add("Missing CSS affordance: $Phrase")
     }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ctypes
 import json
 import mimetypes
 import os
@@ -30,6 +31,7 @@ CATALOG_PATH = TEST_DIR / "regression-test-catalog.md"
 MERMAID_PATH = TEST_DIR / "regression-test-dependencies.mmd"
 NODE_PTY_STATE_DIR = REPO_ROOT / "tmp" / "copilot_admin_runner_state"
 NODE_PTY_STATE_PATH = NODE_PTY_STATE_DIR / "node-pty-copilot-session.json"
+NODE_PTY_WINDOW_STATE_PATH = NODE_PTY_STATE_DIR / "node-pty-copilot-window.json"
 STATE_DIR = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "state"
 LOG_DIR = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "logs"
 JOBS_PATH = STATE_DIR / "jobs.json"
@@ -142,6 +144,42 @@ def read_json_file(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ApiError(500, f"Invalid JSON state file: {rel_path(path)}") from exc
+
+
+def read_optional_json_file(path: Path, default: Any) -> Any:
+    if not path.is_file():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError:
+        return default
+
+
+def is_process_running(pid: Any) -> bool:
+    try:
+        pid_int = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid_int <= 0:
+        return False
+    if os.name == "nt":
+        process_query_limited_information = 0x1000
+        still_active = 259
+        handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid_int)
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid_int, 0)
+    except OSError:
+        return False
+    return True
 
 
 class ControlPlaneBackend:
@@ -315,6 +353,20 @@ class ControlPlaneBackend:
             state = read_json_file(NODE_PTY_STATE_PATH, {})
             if isinstance(state, dict):
                 state = dict(state)
+                window_state = read_optional_json_file(NODE_PTY_WINDOW_STATE_PATH, {})
+                if isinstance(window_state, dict):
+                    state.setdefault("visible_window_expected", bool(window_state.get("visible_window_expected", not bool(window_state.get("hidden")))))
+                    state.setdefault("startup_model", window_state.get("startup_model"))
+                    state.setdefault("startup_allow_all", bool(window_state.get("startup_allow_all")))
+                    state.setdefault("window_state_path", str(NODE_PTY_WINDOW_STATE_PATH))
+                wrapper_running = is_process_running(state.get("wrapper_pid"))
+                state["running"] = wrapper_running
+                if state.get("status") in {"running", "user_input_required"} and not wrapper_running:
+                    state["status"] = "not_running"
+                    state["user_input_required"] = False
+                    state["user_input_reason"] = None
+                if not wrapper_running:
+                    state["visible_window_expected"] = False
                 state["source"] = rel_path(NODE_PTY_STATE_PATH)
             else:
                 state = {"status": "invalid", "source": rel_path(NODE_PTY_STATE_PATH)}
@@ -335,6 +387,15 @@ class ControlPlaneBackend:
         session = self.copilot_session(snapshot)
         transcript = str(session.get("last_output_tail") or "")
         status = str(session.get("status", "unknown"))
+        current_model = session.get("current_model") or session.get("model_hint")
+        configured_model = session.get("startup_model")
+        model_verified = bool(session.get("model_verified") or session.get("current_model"))
+        permissions_allow_all_verified = bool(
+            session.get("permissions_allow_all")
+            or session.get("allow_all_verified")
+            or (session.get("startup_allow_all") and session.get("startup_commands_sent"))
+        )
+        permissions_hint = session.get("permissions_hint") or ("allow-all" if permissions_allow_all_verified else None)
         query = query or {}
         requested_cursor = self._int_query_value(query, "cursor")
         requested_limit = self._int_query_value(query, "limit") or DEFAULT_CONSOLE_TAIL_BYTES
@@ -379,8 +440,11 @@ class ControlPlaneBackend:
             "last_injected_at": session.get("last_injected_at"),
             "input_queue": input_queue,
             "source": session.get("source"),
-            "model_hint": "gpt-5-mini",
-            "permissions_hint": "allow-all",
+            "model_hint": current_model,
+            "configured_model": configured_model,
+            "model_verified": model_verified,
+            "permissions_hint": permissions_hint,
+            "permissions_verified": permissions_allow_all_verified,
         }
 
     def _int_query_value(self, query: dict[str, list[str]], key: str) -> int | None:
