@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+import os
 
-
-REPO_ROOT = Path(r"C:\Copilot_projects\SPS")
+REPO_ROOT = Path(os.environ.get('SPS_REPO_ROOT', r"C:\Copilot_projects\SPS"))
 INDEX_PATH = REPO_ROOT / "dokument_index" / "index.md"
 TRACKED_EXTENSIONS = {".md", ".mmd", ".txt", ".json", ".pdf", ".docx", ".xlsx"}
 EXCLUDED_DIRS = {"tmp"}

@@ -4,9 +4,9 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+import os
 
-
-REPO_ROOT = Path(r"C:\Copilot_projects\SPS")
+REPO_ROOT = Path(os.environ.get('SPS_REPO_ROOT', r"C:\Copilot_projects\SPS"))
 TEST_DIR = REPO_ROOT / "testing" / "regression_test"
 CATALOG_PATH = TEST_DIR / "regression-test-catalog.md"
 MERMAID_PATH = TEST_DIR / "regression-test-dependencies.mmd"

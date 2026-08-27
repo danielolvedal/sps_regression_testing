@@ -4,9 +4,9 @@ import fnmatch
 import re
 import sys
 from pathlib import Path
+import os
 
-
-REPO_ROOT = Path(r"C:\Copilot_projects\SPS")
+REPO_ROOT = Path(os.environ.get('SPS_REPO_ROOT', r"C:\Copilot_projects\SPS"))
 RAW_DATA_DIR = REPO_ROOT / "raw_data"
 INVENTORY_PATH = REPO_ROOT / "syntetisk_data" / "common" / "kallinventering.md"
 TRACKED_EXTENSIONS = {".md", ".txt", ".json", ".pdf", ".docx", ".xlsx"}
