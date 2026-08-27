@@ -8,7 +8,34 @@
 | --- | --- |
 | `runtime\*.ps1` | Stabila root-wrappers för vanliga kommandon. |
 | `runtime\windows\...` | Windows-specifika entrypoints och POC-skript. |
-| `runtime\docker\...` | Framtida Docker-/control-plane-entrypoints. |
+| `runtime\docker\...` | Docker-/control-plane-entrypoints. |
+
+
+Docker-specific Copilot-admin entrypoints live under:
+
+```text
+runtime\docker\copilot-admin\
+```
+
+| Plats | Syfte |
+| --- | --- |
+| `runtime\docker\copilot-admin\start-backend.ps1` | Starts the local Python UI/API backend for the Copilot-admin control plane and serves the frontend. |
+| `runtime\docker\copilot-admin\build-backend-image.ps1` | Builds the UI/API Docker image and prints a repository-mounted run command. |
+
+Common root wrappers:
+
+| Plats | Syfte |
+| --- | --- |
+| `runtime\install_tool.ps1` | Kor pre-flight och installerar saknade beroenden sa att `start_tool.ps1` kan starta Copilot-admin-flodet. |
+
+Common host-runner smoke wrappers:
+
+| Plats | Syfte |
+| --- | --- |
+| `runtime\test-copilot-admin-host-runner-status-input.ps1` | Verifierar host-runnerns Copilot-status och torrkörda inputkö. |
+| `runtime\test-copilot-admin-host-runner-browser-start.ps1` | Verifierar host-runnerns browserstatus och torrkörda browser-startkontrakt. |
+| `runtime\test-copilot-admin-host-runner-real-copilot.ps1` | Startar, observerar och stoppar en verklig synlig node-pty-ägd Copilot-session för smoke-verifiering. |
+| `runtime\test-copilot-admin-host-runner-real-browser.ps1` | Startar, observerar och stoppar en verklig synlig collaborative-browser-session på isolerad smoke-port. |
 
 ## Copilot-admin
 

@@ -107,6 +107,8 @@ Testet ska först markeras som underkänt när:
 - Verifierad observation 2026-08-26: `Malmen 14, Möllevångsgatan 42 garage A` använde `web-stage`-route `https://web-stage.europark.local/garage/details/cfce7585-2612-5b55-5376-fe19d5a04c04` och gick vidare till checkout utan att tappa sessionen.
 - På checkout-sidan var `CustomerModel_IdentificationNumber` förifyllt som dolt fält med värdet `740130-0608`.
 - Blockerande observation 2026-08-26: tre reproduktioner med kandidaten `47184 | Malmen 14, Möllevångsgatan 42 garage A | Migrated` nådde unika checkout-URL:er men renderade samtidigt `Fel` / `Inloggning krävs` och `Logga in med BankID`, trots att `web-stage`-hosten behöll `Logga ut`-länken samt förifyllda kundfält och dolt `CustomerModel.IdentificationNumber = 740130-0608`. Använd denna kombination för att skilja ett verkligt checkout-regressionsfel från ren utloggning eller fel kandidat.
+- Verifierad observation 2026-08-27: efter ny shared-browser-start krävdes Microsoft-inloggning innan Kundtjänstportalen laddade; vänta minst fem minuter och återkontrollera debug-targets innan testet blockeras.
+- Verifierad observation 2026-08-27: sökning på hela namnet `Malmen 14, Möllevångsgatan 42 garage A` i `addressSearch` routade till `https://web-stage.europark.local/garage/map?lat=55.5931356&lng=13.0102118&pageNum=1&pageSize=4`, där rätt web-stage-resultat låg först. Garage B visades samtidigt som `lgcy`-länk och ska fortsatt undvikas för test B.
 
 ## Felutfall
 
@@ -136,15 +138,16 @@ Dokumentera minst:
 
 ## Senast verifierad körning
 
-- **Datum:** 2026-08-26
+- **Datum:** 2026-08-27
 - **Körläge:** Regression Mode
 - **Start-URL:** `https://web-stage.europark.local/myaccount/index`
 - **Valt DS i Admin -> Migrate DS:** `47184 | Malmen 14, Möllevångsgatan 42 garage A | Migrated`
 - **Sökterm i serviceportalen:** `Malmen 14, Möllevångsgatan 42 garage A`
+- **Sökresultat-URL:** `https://web-stage.europark.local/garage/map?lat=55.5931356&lng=13.0102118&pageNum=1&pageSize=4`
 - **Öppnad detalj-URL:** `https://web-stage.europark.local/garage/details/cfce7585-2612-5b55-5376-fe19d5a04c04`
 - **Produktutfall:** godkänt, minst en köpbar produkt fanns tillgänglig
 - **Vald produkt:** `Oreserverad plats, Dygnet runt, Nyttotillstånd` för `SEK 530 / månad inkl. moms`
-- **Nästa steg-utfall:** godkänt, checkout öppnades på `https://web-stage.europark.local/garage/checkout/7bfe2d4d-3833-4397-bfbd-3a35e793d352`
+- **Nästa steg-utfall:** godkänt, checkout öppnades på `https://web-stage.europark.local/garage/checkout/97570ef4-700a-4f84-a931-019e01442f32`
 - **Inloggningsutfall:** godkänt, användaren var fortfarande inloggad som `Anna Walldén`
 - **Personnummerutfall:** godkänt, `740130-0608` var förifyllt via `CustomerModel_IdentificationNumber`
 - **Historisk kontrast:** `Malmen 14, Möllevångsgatan 42 garage B` routades tidigare till legacy och tappade sessionen

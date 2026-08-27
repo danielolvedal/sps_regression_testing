@@ -7,7 +7,8 @@ import pty from 'node-pty';
 const scriptDir = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
 const repoRoot = path.resolve(scriptDir, '..', '..', '..', '..');
 const logDir = path.join(repoRoot, 'tmp', 'copilot_admin_runner_logs');
-const stateDir = path.join(repoRoot, 'tmp', 'copilot_admin_runner_state');
+const stateDir = path.resolve(process.env.COPILOT_ADMIN_RUNNER_STATE_DIR || path.join(repoRoot, 'tmp', 'copilot_admin_runner_state'));
+const sessionId = process.env.COPILOT_ADMIN_RUNNER_SESSION_ID || 'node-pty-copilot';
 
 function utcStamp() {
   return new Date().toISOString();
@@ -27,8 +28,14 @@ function logEvent(event, details = {}) {
   ensureDirs();
   const record = {
     timestamp: utcStamp(),
+    level: details.level ?? 'info',
+    component: 'node-pty',
     event_id: crypto.randomUUID(),
     event,
+    trace_id: details.trace_id ?? null,
+    session_id: details.session_id ?? sessionId,
+    job_id: details.job_id ?? null,
+    status: details.status ?? null,
     pid: process.pid,
     repo_root: repoRoot,
     details,
@@ -54,6 +61,31 @@ function inputTranscriptPath() {
 
 function inputQueueDir() {
   return path.join(stateDir, 'node-pty-copilot-input-queue');
+}
+
+function queueSnapshot(queueDir) {
+  try {
+    fs.mkdirSync(queueDir, { recursive: true });
+    const files = fs.readdirSync(queueDir);
+    return {
+      queue_dir: queueDir,
+      pending: files.filter((name) => name.endsWith('.json')).length,
+      done: files.filter((name) => name.endsWith('.json.done')).length,
+      invalid: files.filter((name) => name.endsWith('.json.invalid')).length,
+      skipped: files.filter((name) => name.endsWith('.json.skipped')).length,
+      latest_files: files.sort().slice(-10),
+    };
+  } catch (error) {
+    return {
+      queue_dir: queueDir,
+      pending: null,
+      done: null,
+      invalid: null,
+      skipped: null,
+      error: error.message,
+      latest_files: [],
+    };
+  }
 }
 
 function stripAnsi(text) {
@@ -97,8 +129,16 @@ function parseArgs(argv) {
   return { command, rest };
 }
 
+function optionValue(args, name, defaultValue = null) {
+  const index = args.indexOf(name);
+  if (index < 0 || index + 1 >= args.length) {
+    return defaultValue;
+  }
+  return args[index + 1];
+}
+
 function spawnPty(command, args, options = {}) {
-  const cols = options.cols ?? 120;
+  const cols = options.cols ?? 240;
   const rows = options.rows ?? 40;
   return pty.spawn(command, args, {
     name: 'xterm-256color',
@@ -211,9 +251,12 @@ async function runInteractiveCopilot(options = {}) {
   const sessionInputQueueDir = inputQueueDir();
   const command = copilotCommand();
   const term = spawnPty(command, []);
+  const startedAt = utcStamp();
   let plainOutput = '';
   let inputText = '';
   let lastInjectedText = '';
+  let trustAccepted = false;
+  let startupCommandsSent = false;
 
   fs.mkdirSync(sessionInputQueueDir, { recursive: true });
 
@@ -225,6 +268,7 @@ async function runInteractiveCopilot(options = {}) {
       JSON.stringify(
         {
           status: 'running',
+          started_at: startedAt,
           updated_at: utcStamp(),
           repo_root: repoRoot,
           mode: 'node-pty-interactive-copilot',
@@ -235,6 +279,7 @@ async function runInteractiveCopilot(options = {}) {
           input_logging_enabled: Boolean(options.logInput),
           input_transcript_path: options.logInput ? sessionInputTranscriptPath : null,
           input_queue_dir: sessionInputQueueDir,
+          input_queue_status: queueSnapshot(sessionInputQueueDir),
           user_input_required: userInputRequest.required,
           user_input_reason: userInputRequest.reason,
           last_output_tail: plainOutput.slice(-4000),
@@ -259,7 +304,7 @@ async function runInteractiveCopilot(options = {}) {
     JSON.stringify(
       {
         status: 'running',
-        started_at: utcStamp(),
+        started_at: startedAt,
         updated_at: utcStamp(),
         repo_root: repoRoot,
         mode: 'node-pty-interactive-copilot',
@@ -270,6 +315,7 @@ async function runInteractiveCopilot(options = {}) {
         input_logging_enabled: Boolean(options.logInput),
         input_transcript_path: options.logInput ? sessionInputTranscriptPath : null,
         input_queue_dir: sessionInputQueueDir,
+        input_queue_status: queueSnapshot(sessionInputQueueDir),
         user_input_required: false,
         user_input_reason: null,
         last_output_tail: '',
@@ -348,20 +394,25 @@ async function runInteractiveCopilot(options = {}) {
 
         const text = String(request.text ?? '');
         const submit = request.submit !== false;
+        const clearLine = request.clear_line === true;
         if (!text) {
           logEvent('node_pty_interactive_injection_skipped', { file_path: filePath, reason: 'empty_text' });
           fs.renameSync(filePath, `${filePath}.skipped`);
           continue;
         }
 
+        if (clearLine && !text.startsWith('\x15')) {
+          term.write('\x15');
+        }
         const payload = submit ? `${text}\r` : text;
         term.write(payload);
-        lastInjectedText = text;
-        writeSessionState({ last_injected_at: utcStamp(), last_injected_submit: submit });
+        lastInjectedText = String(request.display_text ?? text);
+        writeSessionState({ last_injected_at: utcStamp(), last_injected_submit: submit, last_injected_clear_line: clearLine });
         logEvent('node_pty_interactive_injection_sent', {
           file_path: filePath,
           byte_count: Buffer.byteLength(payload),
           submit,
+          clear_line: clearLine,
           text,
         });
         fs.renameSync(filePath, `${filePath}.done`);
@@ -371,6 +422,49 @@ async function runInteractiveCopilot(options = {}) {
     }
   }, 250);
   queueTimer.unref();
+
+  const startupTimer = setInterval(() => {
+    const recentOutput = plainOutput.slice(-4000);
+    const userInputRequest = detectUserInputRequest(recentOutput);
+    if (!trustAccepted && userInputRequest.reason === 'directory_trust_prompt') {
+      term.write('1\r');
+      trustAccepted = true;
+      lastInjectedText = '1';
+      writeSessionState({ startup_trust_action: 'accepted_session_only', last_injected_at: utcStamp(), last_injected_submit: true });
+      logEvent('node_pty_startup_trust_accepted', { mode: 'session_only' });
+      return;
+    }
+    if (startupCommandsSent || userInputRequest.required) {
+      return;
+    }
+    const startupCommands = [];
+    if (options.startupModel) {
+      startupCommands.push(`/model ${options.startupModel}`);
+    }
+    if (options.allowAll) {
+      startupCommands.push('/allow-all');
+    }
+    if (startupCommands.length === 0) {
+      startupCommandsSent = true;
+      return;
+    }
+    for (const commandText of startupCommands) {
+      term.write(`${commandText}\r`);
+      lastInjectedText = commandText;
+      logEvent('node_pty_startup_command_sent', {
+        command: commandText.startsWith('/model ') ? '/model <configured>' : commandText,
+      });
+    }
+    startupCommandsSent = true;
+    writeSessionState({
+      startup_model: options.startupModel ?? null,
+      startup_allow_all: Boolean(options.allowAll),
+      startup_commands_sent: true,
+      last_injected_at: utcStamp(),
+      last_injected_submit: true,
+    });
+  }, 1000);
+  startupTimer.unref();
 }
 
 async function main() {
@@ -391,7 +485,11 @@ async function main() {
     }));
   }
   if (command === 'interactive-copilot') {
-    await runInteractiveCopilot({ logInput: rest.includes('--log-input') });
+    await runInteractiveCopilot({
+      logInput: rest.includes('--log-input'),
+      startupModel: optionValue(rest, '--startup-model'),
+      allowAll: rest.includes('--allow-all'),
+    });
     return;
   }
   throw new Error(`Unknown command: ${command}`);

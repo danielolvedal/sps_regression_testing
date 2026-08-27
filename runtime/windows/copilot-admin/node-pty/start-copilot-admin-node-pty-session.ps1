@@ -1,5 +1,7 @@
 param(
-    [switch]$LogInput
+    [switch]$LogInput,
+    [string]$StartupModel = 'gpt-5-mini',
+    [switch]$AllowAll = $true
 )
 
 Set-StrictMode -Version Latest
@@ -16,5 +18,11 @@ if (-not (Test-Path (Join-Path $packageDir 'node_modules\node-pty'))) {
 $arguments = @($scriptPath, 'interactive-copilot')
 if ($LogInput) {
     $arguments += '--log-input'
+}
+if ($StartupModel) {
+    $arguments += @('--startup-model', $StartupModel)
+}
+if ($AllowAll) {
+    $arguments += '--allow-all'
 }
 & $node @arguments

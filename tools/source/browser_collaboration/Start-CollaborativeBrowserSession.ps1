@@ -4,7 +4,7 @@ param(
     [string]$Browser = 'auto',
     [int]$Port = 9222,
     [string]$ProfileDir,
-    [switch]$ReuseExisting
+    [switch]$ReuseExisting = $true
 )
 
 Set-StrictMode -Version Latest

@@ -17,6 +17,8 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\regression-rapportering.md` - Defines the formal-English reporting standard for `test_reports`, including summaries and verified defect folders.
 - `tools\docs\browser-samarbete-stage-session.md` - Beskriver standardmodellen för synlig browser-session med agent/användar-samarbete.
 - `tools\docs\copilot-admin-runner-poc.md` - Beskriver den första host-runner-POC:n för status, rapportläsning, Mermaid-graf och tre möjliga bryggspår mellan Windows och Docker-control-plane.
+- `tools\docs\copilot-admin-host-runner-adapter.md` - Definierar Windows host-runner-kontraktet för backend/control-plane med Copilot-/browserstatus, start/stopp och säker inputkö.
+- `tools\docs\copilot-admin-e2e-critical-coverage.md` - Maps Copilot-admin user stories to E2E/static/dry-run validations, documents the mandatory separation between production Copilot sessions and hidden isolated real-E2E sessions, and records remaining real-integration gaps.
 - `tools\docs\copilot-admin-praktiskt-anvandarflode.md` - Beskriver den praktiska målprocessen för Copilot CLI, synlig browser och framtida Docker-control-plane samt vilka användarcase som ska valideras innan vidare implementation.
 - `tools\docs\delad-browser-flikstyrning.md` - Beskriver hur agenten öppnar nya flikar i samma delade browserfönster för test och jämförelse mellan miljöer.
 - `tools\docs\sps-regression-server-gapanalys-och-sammanslagning.md` - Sammanfattar externa `sps-regression-server`, jämför den mot nuvarande SPS-repo och beskriver rekommenderad sammanslagning och målarkitektur.
@@ -29,7 +31,10 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 
 ## Runtime och källkod för verktyg
 
+- `start_tool.ps1` - Enkel rot-entrypoint som startar Regression tool suite: host-runner API, backend/frontend, gemensam Copilot-session och gemensam browser samt skriver ut separat admin-UI-URL.
+- `install_tool.ps1` - Enkel rot-entrypoint som kor pre-flight, installerar saknade beroenden och bara markerar installationen som klar nar `start_tool.ps1`-kraven ar uppfyllda.
 - `runtime\README.md` - Beskriver runtime-strukturen med stabila root-wrappers samt Windows- och Docker-underkataloger.
+- `runtime\install_tool.ps1` - Stabil root-wrapper som kor Windows-installern for `start_tool.ps1` med pre-flight forst.
 - `runtime\start-collaborative-stage-browser.ps1` - Körklar entrypoint för att starta synlig InPrivate/Incognito-browser för SPS-sessioner.
 - `runtime\open-shared-browser-tab.ps1` - Körklar entrypoint för att öppna en ny flik i samma delade browserfönster.
 - `runtime\inventory-kundtjanst-menus.ps1` - Körklar entrypoint för att extrahera Kundtjänstportalens menystruktur till rådata.
@@ -37,6 +42,13 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `runtime\start-copilot-admin-runner.ps1` - Stabil root-wrapper som startar HTTP-API-POC för lokal Windows-bunden host runner.
 - `runtime\show-regression-status.ps1` - Returnerar strukturerad status från host-runner-POC:n med testkatalog, senaste rapport och tillgängliga kommandomallar.
 - `runtime\render-regression-graph.ps1` - Returnerar Mermaid-källan för regressionsberoenden via host-runner-POC:n.
+- `runtime\invoke-copilot-admin-host-runner.ps1` - Stabil root-wrapper för host-runner-adapterns status-, Copilot-, input- och browserkommandon.
+- `runtime\start-copilot-admin-host-runner-api.ps1` - Stabil root-wrapper som startar host-runnerns HTTP API för backend/control-plane-integration på separat port.
+- `runtime\test-copilot-admin-host-runner-status-input.ps1` - Säker smoke-testwrapper för Copilot-sessionstatus och torrkörd PTY-inputkö.
+- `runtime\test-copilot-admin-test-isolation.ps1` - Regressionstest som verifierar att dev-/backend-/browser-E2E inte skriver till produktions-Copilot-kön och att full real-E2E använder dold isolerad testsession.
+- `runtime\test-copilot-admin-host-runner-browser-start.ps1` - Säker smoke-testwrapper för browserstatus och torrkörd collaborative-browser-start.
+- `runtime\test-copilot-admin-host-runner-real-copilot.ps1` - Real smoke-testwrapper som startar, observerar och stoppar en synlig node-pty-ägd Copilot-session.
+- `runtime\test-copilot-admin-host-runner-real-browser.ps1` - Real smoke-testwrapper som startar, observerar och stoppar en synlig collaborative-browser-session på isolerad smoke-port.
 - `runtime\bind-copilot-admin-terminal.ps1` - Binder ett synligt Copilot CLI-terminalfönster en gång per uppstart så Level 2-inmatning kan rikta sig till samma fönster även när andra fönster används.
 - `runtime\test-copilot-admin-bridge-level2-http.ps1` - Hämtar verifieringsprompt via HTTP-bridge och skickar den vidare till terminal-input-adaptern för Level 2-test.
 - `runtime\install-copilot-admin-node-pty-poc.ps1` - Stabil root-wrapper som installerar npm-beroenden för `node-pty`-baserad PTY-POC.
@@ -60,6 +72,17 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `runtime\windows\copilot-admin\node-pty\start-copilot-admin-node-pty-window.ps1` - Startar den interaktiva node-pty-wrappern i ett nytt synligt PowerShell-fönster för användar-/agent-samarbete.
 - `runtime\windows\copilot-admin\node-pty\send-copilot-admin-node-pty-input.ps1` - Köar text till den aktiva interaktiva node-pty-wrappern utan att använda Windows foreground/SendKeys.
 - `runtime\windows\copilot-admin\node-pty\Resolve-NodePtyTooling.ps1` - Hjälpfunktion som hittar `node` och `npm` via PATH eller standardinstallationsvägar.
+- `runtime\docker\copilot-admin\start-backend.ps1` - Startar Copilot-admin control-plane UI/API direkt från repositoryt med Python stdlib HTTP-server.
+- `runtime\docker\copilot-admin\build-backend-image.ps1` - Bygger Docker-image för Copilot-admin control-plane UI/API och visar körkommando med repo-mount.
+- `runtime\docker\copilot-admin\test-e2e-dev.ps1` - Kör utvecklings-E2E för Copilot-admin mot riktig backend, statiskt frontendkontrakt, browser-E2E och injicerad säker host-state.
+- `runtime\docker\copilot-admin\test-real-visible-e2e.ps1` - Kör real visible E2E genom att starta host-runner API, backend, synlig node-pty Copilot-session och collaborative browser.
+- `runtime\windows\copilot-admin\host-runner\invoke-copilot-admin-host-runner.ps1` - Windows-wrapper för backendvänliga host-runner-kommandon.
+- `runtime\windows\copilot-admin\host-runner\start-copilot-admin-host-runner-api.ps1` - Startar Windows host-runnerns HTTP API för real-runner bridge från backend.
+- `runtime\windows\copilot-admin\host-runner\test-copilot-admin-host-runner-status-input.ps1` - Verifierar maskinläsbar Copilot-sessionstatus och inputkö i torrkörning.
+- `runtime\windows\copilot-admin\host-runner\test-copilot-admin-host-runner-browser-start.ps1` - Verifierar browserstatus och browser-start-kontrakt utan att starta ett nytt browserfönster.
+- `runtime\windows\copilot-admin\host-runner\test-copilot-admin-host-runner-real-copilot.ps1` - Windows-implementation av real smoke för synlig node-pty Copilot-start, status, state/loggar och stopp.
+- `runtime\windows\copilot-admin\host-runner\test-copilot-admin-host-runner-real-browser.ps1` - Windows-implementation av real smoke för synlig collaborative-browser-start, debugstatus, state/loggar och stopp.
+- `runtime\windows\copilot-admin\install_tool.ps1` - Windows-entrypoint som delegerar till den faktiska install-logiken for `start_tool.ps1` och kor pre-flight innan atgarder.
 - `runtime\test-document-index.ps1` - Körklar regressionstest som verifierar att alla beständiga dokument/datafiler är registrerade i detta index.
 - `runtime\test-kallinventering-coverage.ps1` - Körklar regressionstest som verifierar att `syntetisk_data\common\kallinventering.md` täcker aktuellt innehåll i `raw_data`.
 - `runtime\test-regression-dependencies.ps1` - Körklar regressionstest som verifierar att regressionstesternas metadata, katalog och Mermaid-beroenden är synkade.
@@ -70,10 +93,21 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\source\copilot_admin_runner\Bind-CopilotTerminalWindow.ps1` - Källkod för att binda ett synligt Copilot CLI-terminalfönster till en sparad window handle inför säker Level 2-inmatning.
 - `tools\source\copilot_admin_runner\Invoke-TerminalInputAdapter.ps1` - Källkod för armerad terminal-input-adapter som loggar och testar om ett bridge-genererat kommando kan klistras in i aktiv Copilot CLI-terminal.
 - `tools\source\copilot_admin_runner\Start-OwnedCopilotSessionPoc.ps1` - Källkod för POC kring runner-startad synlig Copilot-session och redirectad stdio-probe.
+- `tools\source\copilot_admin_runner\Install-StartToolDependencies.ps1` - Install-logik som inventerar, rapporterar och atgardar beroenden sa att `start_tool.ps1` kan koras efter godkand pre-flight.
 - `tools\source\copilot_admin_runner\owned_copilot_pty.py` - Python/ctypes-baserad Windows ConPTY-POC för runner-ägd pseudo-terminal utan externa beroenden.
 - `tools\source\copilot_admin_runner\node_pty_poc\package.json` - Node.js-beroendemanifest för robustare `node-pty`-baserad PTY-POC.
 - `tools\source\copilot_admin_runner\node_pty_poc\package-lock.json` - Låser installerade npm-beroenden för `node-pty`-baserad PTY-POC.
 - `tools\source\copilot_admin_runner\node_pty_poc\node_pty_poc.mjs` - `node-pty`-baserad POC för runner-ägd stdin/stdout, Copilot-versionstest, Copilot-prompttest och interaktiv wrapper.
+- `tools\source\copilot_admin_control_plane\backend\app.py` - Python stdlib-backend för Copilot-admin control plane med health/status, regression, rapport-, jobb-, logg- och E2E-control-API:er.
+- `tools\source\copilot_admin_control_plane\backend\test_app.py` - Smoke-/unittest-svit för Copilot-admin backendens API-kontrakt och säkra rapportläsning.
+- `tools\source\copilot_admin_control_plane\backend\Dockerfile` - Containerdefinition för backenddelen av Copilot-admin control plane.
+- `tools\source\copilot_admin_control_plane\e2e\test_control_plane_dev_e2e.py` - Utvecklings-E2E som verifierar startup/API/UI-kontrakt, statusdiod, jobbcykel, rapporter, Mermaid, asynkronitet och loggkorrelation mot injicerad host-state.
+- `tools\source\copilot_admin_control_plane\e2e\test_frontend_browser_e2e.py` - Browserbaserad E2E via Chrome/Edge CDP för Copilot-admin frontendens dashboard, statusdiod, modekontroller, regressionjobb, rapportläsare, loggar och Mermaid-interaktioner.
+- `tools\source\copilot_admin_control_plane\frontend\index.html` - Frontendskal för Copilot-admin med dashboard, regressioner, Mermaid, rapporter, jobb och loggar.
+- `tools\source\copilot_admin_control_plane\frontend\app.js` - Klientlogik för statuspolling, asynkrona jobb, rapportläsare och Mermaid-interaktioner.
+- `tools\source\copilot_admin_control_plane\frontend\styles.css` - Visuell layout och statusdiod-/Mermaid-/rapportstilar för Copilot-admin.
+- `tools\source\copilot_admin_control_plane\frontend\static-validate.ps1` - PowerShell-validering av frontendens kritiska test hooks, API-kopplingar och loggevents.
+- `tools\source\copilot_admin_control_plane\frontend\static-validate.mjs` - Node.js-validering av frontendens kritiska test hooks, API-kopplingar och loggevents.
 - `tools\source\documentation_generation\generate_kundtjanst_function_doc.py` - Källkod som omvandlar inventeringsdata till markdownmanual.
 - `tools\source\document_index_validation\validate_document_index.py` - Validerar att dokument/datafiler i repositoryt finns refererade i detta index.
 - `tools\source\document_index_validation\validate_kallinventering_coverage.py` - Validerar att `kallinventering.md` täcker alla spårade källor i `raw_data` och spårar dem till berörda syntetiska dokument.

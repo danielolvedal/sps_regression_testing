@@ -62,6 +62,18 @@ Loggen innehåller bland annat:
 
 Loggen ska inte användas för hemligheter eller fullständig siddata från browsern.
 
+## Startup-policy för Copilot och browser
+
+Den interaktiva `node-pty`-ägda Copilot-sessionen ska startas med explicit standardpolicy:
+
+- modell: `gpt-5-mini`, som är valt som lågkostnadsstandard för kontrollplanet
+- permissions: `/allow-all`, så regressionstest och verktygskörningar inte fastnar i onödiga permission-prompter
+- folder trust: om Copilot visar `Confirm folder trust` ska wrappern välja `1. Yes` för aktuell session innan övriga startup-kommandon skickas
+
+Policyn ska vara synlig i state/loggar och kunna överstyras med parametrar, men standarden ska vara att control-plane-starten inte lämnar modell eller permissions åt slumpen.
+
+Browser-sessionen ska också behandlas som en singleton. Eftersom varje nytt InPrivate-/Incognito-fönster kan kräva ny Microsoft-inloggning ska host runnern i första hand återanvända den första collaborative browser-sessionen och öppna nya flikar i samma fönster via debugporten. Nya browserfönster ska bara startas när ingen återanvändbar session finns eller när ett explicit restart-/ny-session-flöde används.
+
 Terminal-input-adaptern för Level 2-test skriver separat JSONL-logg till:
 
 ```text
@@ -436,3 +448,17 @@ Viktigt edge case: Copilot CLI kan vid första körning eller ny katalog fråga 
 2. Dokumentera faktiska hinder och styrkor
 3. Lås först därefter den primära bryggstrategin
 4. Bygg vidare host runnern till faktisk exekveringsmotor för runtime-skript och Copilot-kommandon
+
+## Härdad host-runner-adapter
+
+Det härdade Windows-kontraktet för nästa backendsteg finns i:
+
+- `tools\docs\copilot-admin-host-runner-adapter.md`
+
+Adaptern lägger ett maskinläsbart lager ovanpå POC:n för:
+
+- ren Copilot-start/stopp med befintlig node-pty-sessiondetektion
+- statuspolling för Copilot, transcript-tail, inputkö och `user_input_required`
+- synlig collaborative-browser-start och stopp via befintligt runtime-skript och sparat state
+- torra smoke-tester för session/input och browser-start utan destruktiv sidoeffekt
+- real smoke-wrappers som startar, observerar och stoppar en host-ägd node-pty Copilot-session respektive en host-ägd synlig browser-session med JSON-state och JSONL-loggar
