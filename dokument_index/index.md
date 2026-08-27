@@ -1,6 +1,6 @@
 # Dokumentindex
 
-Detta index är den primära ingången för AI-agenter och människor som behöver hitta relevant material i `C:\Copilot_projects\SPS`.
+Detta index är den primära ingången för AI-agenter och människor som behöver hitta relevant material i SPS-repositoryts rotkatalog, oavsett var den ligger på disk.
 
 ## Läsordning för agenter
 
@@ -17,9 +17,11 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\regression-rapportering.md` - Defines the formal-English reporting standard for `test_reports`, including summaries and verified defect folders.
 - `tools\docs\browser-samarbete-stage-session.md` - Beskriver standardmodellen för synlig browser-session med agent/användar-samarbete.
 - `tools\docs\delad-browser-flikstyrning.md` - Beskriver hur agenten öppnar nya flikar i samma delade browserfönster för test och jämförelse mellan miljöer.
+- `tools\docs\sps-regression-server-gapanalys-och-sammanslagning.md` - Sammanfattar externa `sps-regression-server`, jämför den mot nuvarande SPS-repo och beskriver rekommenderad sammanslagning och målarkitektur.
 - `tools\decisions\0001-session-bootstrap-via-browser.md` - Beslutsdokument som gör browserbootstrap till standard för UI-arbete.
 - `tools\decisions\0002-katalogstruktur.md` - Beslutsdokument som gör katalogstrukturen styrande.
 - `tools\road-map\README.md` - Beskriver vad framtida verktygs-roadmaps ska innehålla.
+- `tools\road-map\copilot-admin-control-plane.md` - Roadmap för en Docker-hostad control plane med Windows-runner, Copilot CLI och operativt stöd för SPS-regressioner.
 - `tools\decisions\README.md` - Beskriver vilka typer av verktygsbeslut som ska lagras i beslutskatalogen.
 
 ## Runtime och källkod för verktyg

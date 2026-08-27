@@ -1,6 +1,6 @@
 # Fastlåst katalogstruktur för SPS-dokumentation
 
-Den här katalogstrukturen är styrande för allt arbete under `C:\Copilot_projects\SPS`.
+Den här katalogstrukturen är styrande för allt arbete under SPS-repositoryts rotkatalog, oavsett var den ligger på disk.
 
 ## Rotprincip
 

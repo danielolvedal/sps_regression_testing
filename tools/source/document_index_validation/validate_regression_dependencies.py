@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-REPO_ROOT = Path(r"C:\Copilot_projects\SPS")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 TEST_DIR = REPO_ROOT / "testing" / "regression_test"
 CATALOG_PATH = TEST_DIR / "regression-test-catalog.md"
 MERMAID_PATH = TEST_DIR / "regression-test-dependencies.mmd"

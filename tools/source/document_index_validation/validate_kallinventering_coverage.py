@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 
-REPO_ROOT = Path(r"C:\Copilot_projects\SPS")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 RAW_DATA_DIR = REPO_ROOT / "raw_data"
 INVENTORY_PATH = REPO_ROOT / "syntetisk_data" / "common" / "kallinventering.md"
 TRACKED_EXTENSIONS = {".md", ".txt", ".json", ".pdf", ".docx", ".xlsx"}

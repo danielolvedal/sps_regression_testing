@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 
-REPO_ROOT = Path(r"C:\Copilot_projects\SPS")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 INDEX_PATH = REPO_ROOT / "dokument_index" / "index.md"
 TRACKED_EXTENSIONS = {".md", ".mmd", ".txt", ".json", ".pdf", ".docx", ".xlsx"}
 EXCLUDED_DIRS = {"tmp"}
