@@ -8,7 +8,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 INDEX_PATH = REPO_ROOT / "dokument_index" / "index.md"
 TRACKED_EXTENSIONS = {".md", ".mmd", ".txt", ".json", ".pdf", ".docx", ".xlsx"}
-EXCLUDED_DIRS = {"tmp"}
+EXCLUDED_DIRS = {"tmp", "node_modules"}
 EXCLUDED_PATHS = {
     Path(r"manuals\user_manuals"),
     Path(r"manuals\client_manuals"),
@@ -36,6 +36,18 @@ def collect_repo_documents() -> list[str]:
     )
 
 
+def collect_forbidden_tmp_dirs() -> list[str]:
+    root_tmp = REPO_ROOT / "tmp"
+    return sorted(
+        [
+            to_rel(path)
+            for path in REPO_ROOT.rglob("tmp")
+            if path.is_dir() and path != root_tmp
+        ],
+        key=str.casefold,
+    )
+
+
 def collect_indexed_paths(index_text: str) -> set[str]:
     matches = re.findall(r"`([^`]+)`", index_text)
     return {match for match in matches if "\\" in match or match.endswith(".md")}
@@ -43,6 +55,13 @@ def collect_indexed_paths(index_text: str) -> set[str]:
 
 def main() -> int:
     index_text = INDEX_PATH.read_text(encoding="utf-8")
+    forbidden_tmp_dirs = collect_forbidden_tmp_dirs()
+    if forbidden_tmp_dirs:
+        print("Forbidden tmp directories outside repository-root tmp:")
+        for path in forbidden_tmp_dirs:
+            print(f"- {path}")
+        return 1
+
     repo_docs = collect_repo_documents()
     indexed = collect_indexed_paths(index_text)
     missing = [path for path in repo_docs if path not in indexed]

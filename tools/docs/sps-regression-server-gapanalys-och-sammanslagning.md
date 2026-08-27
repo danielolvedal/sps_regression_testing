@@ -94,8 +94,8 @@ Det här repo:t bör vara den plats där:
 Det externa projektet bör inte fortsätta som en parallell produktlinje. Dess dokumentation bör i stället successivt normaliseras till:
 
 - `tools\docs` för styrande verktygsdokument
-- `tools\road-map` för framtida steg
-- `tools\decisions` för låsta verktygsbeslut
+- `tools\docs\road-map` för framtida steg
+- `tools\docs\decissions` för låsta verktygsbeslut
 
 ### 3. Bygg en control plane runt nuvarande Copilot-arbetssätt
 

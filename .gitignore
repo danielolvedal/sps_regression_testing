@@ -1,8 +1,8 @@
 tmp/*
 !tmp/.gitignore
 
-tools/tmp/*
-!tools/tmp/.gitignore
+node_modules/
+**/node_modules/
 
 Thumbs.db
 Desktop.ini

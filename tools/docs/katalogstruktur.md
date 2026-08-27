@@ -14,8 +14,8 @@ Alla beständiga filer ska placeras i en namngiven katalog under projektroten. T
 | `syntetisk_data` | Strukturerad, bearbetad eller AI-optimerad information baserad på `raw_data`. |
 | `tools\source` | Källkod för verktyg, connectors, script och automation som arbetar med SPS eller dess dokumentation. Detta är inte SPS applikationskod. |
 | `tools\docs` | Dokumentation för verktyg, arbetsmetoder och skript. Handlar om verktygen, inte om SPS-funktioner i sig. |
-| `tools\road-map` | Roadmaps för de verktyg vi bygger/använder runt SPS. |
-| `tools\decisions` | Beslut som rör verktyg, skript, runtime och arbetssätt. |
+| `tools\docs\road-map` | Roadmaps för de verktyg vi bygger/använder runt SPS. |
+| `tools\docs\decissions` | Beslut som rör verktyg, skript, runtime och arbetssätt. |
 | `tools\source\[tool_name]` | Källkod för specifika hjälpverktyg som utvecklas för SPS-arbetet. |
 | `testing\funktional_test` | Beskrivningar, fall och metodik för funktionella tester. |
 | `testing\regression_test` | Beskrivningar, fall och metodik för regressionstester. |
@@ -24,17 +24,19 @@ Alla beständiga filer ska placeras i en namngiven katalog under projektroten. T
 | `manuals\user_manuals` | Färdiga manualer för slutanvändare i serviceportalen. |
 | `manuals\client_manuals` | Färdiga manualer för klienter, företag och SaaS-kunder. |
 | `dokument_index` | Övergripande index över dokument, data, scripts och referenser. |
-| `runtime` | Körklara skript och verktyg. |
+| `runtime` | Körklara skript och verktyg. Roten innehåller stabila användar-wrappers; OS-/miljöspecifika entrypoints placeras i underkataloger. |
+| `runtime\windows` | Windows-specifika runtime-entrypoints, till exempel Copilot-admin host runner, terminalinmatning och PTY-POC. |
+| `runtime\docker` | Målplats för framtida Docker-/control-plane-entrypoints. |
 | `tmp` | Enda tillåtna platsen för temporära filer, profiler, exporter och mellanresultat. |
 
 ## Styrande regler
 
 1. Inga nya toppnivåkataloger får införas utan uttryckligt beslut.
-2. Inga temporära filer får läggas utanför `tmp`.
+2. Inga temporära filer får läggas utanför repositoryrotens `tmp`; `tmp`-kataloger under `tools` eller andra underkataloger är förbjudna.
 3. Nya råuttag från systemet ska i första hand till `raw_data`.
 4. Strukturerad sammanställning för AI eller dokumentproduktion ska till `syntetisk_data`.
 5. Färdiga användardokument ska till `manuals`.
-6. Verktygsdokumentation ska till `tools\docs`.
+6. Verktygsdokumentation ska till `tools\docs`; verktygsroadmaps ska till `tools\docs\road-map` och verktygsbeslut ska till `tools\docs\decissions`.
 7. `AGENTS.md` ska alltid peka vidare till `dokument_index\index.md`.
 8. Alla nya beständiga dokument/datafiler ska listas i `dokument_index\index.md`, **utom** innehåll under `test_reports`.
 9. Dokumentindex ska verifieras med regressionstest.
@@ -60,3 +62,18 @@ Alla beständiga filer ska placeras i en namngiven katalog under projektroten. T
 9. Om `raw_data` har ändrats, uppdatera `syntetisk_data\common\kallinventering.md` och kör `runtime\test-kallinventering-coverage.ps1`
 10. Uppdatera därefter alla berörda syntetiska dokument innan arbetet anses klart
 11. Om regressionstest körs, uppdatera först testfallet med lärdomar och skriv endast rapportpaket till `test_reports` i `Regression Mode` för passerade eller verifierade fallerade tester
+
+## Runtime-understruktur
+
+När ett verktyg får många entrypoints ska `runtime` inte fyllas med alla interna POC-/hjälpskript. Använd i stället:
+
+- `runtime\windows\<tool>\...` för Windows-specifika körskript
+- `runtime\docker\<tool>\...` för framtida container-/control-plane-skript
+- `runtime\*.ps1` endast för stabila och frekvent använda root-wrappers
+
+För Copilot-admin används:
+
+- `runtime\windows\copilot-admin\bridge`
+- `runtime\windows\copilot-admin\terminal`
+- `runtime\windows\copilot-admin\pty`
+- `runtime\windows\copilot-admin\node-pty`

@@ -16,26 +16,64 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\regressionstest-arbetsmodell.md` - Fastställer hur agenter ska tolka kommandon om regressionstest och hur UI-regressioner körs som instruktionsstyrda testfall.
 - `tools\docs\regression-rapportering.md` - Defines the formal-English reporting standard for `test_reports`, including summaries and verified defect folders.
 - `tools\docs\browser-samarbete-stage-session.md` - Beskriver standardmodellen för synlig browser-session med agent/användar-samarbete.
+- `tools\docs\copilot-admin-runner-poc.md` - Beskriver den första host-runner-POC:n för status, rapportläsning, Mermaid-graf och tre möjliga bryggspår mellan Windows och Docker-control-plane.
+- `tools\docs\copilot-admin-praktiskt-anvandarflode.md` - Beskriver den praktiska målprocessen för Copilot CLI, synlig browser och framtida Docker-control-plane samt vilka användarcase som ska valideras innan vidare implementation.
 - `tools\docs\delad-browser-flikstyrning.md` - Beskriver hur agenten öppnar nya flikar i samma delade browserfönster för test och jämförelse mellan miljöer.
 - `tools\docs\sps-regression-server-gapanalys-och-sammanslagning.md` - Sammanfattar externa `sps-regression-server`, jämför den mot nuvarande SPS-repo och beskriver rekommenderad sammanslagning och målarkitektur.
-- `tools\decisions\0001-session-bootstrap-via-browser.md` - Beslutsdokument som gör browserbootstrap till standard för UI-arbete.
-- `tools\decisions\0002-katalogstruktur.md` - Beslutsdokument som gör katalogstrukturen styrande.
-- `tools\road-map\README.md` - Beskriver vad framtida verktygs-roadmaps ska innehålla.
-- `tools\road-map\copilot-admin-control-plane.md` - Roadmap för en Docker-hostad control plane med Windows-runner, Copilot CLI och operativt stöd för SPS-regressioner.
-- `tools\decisions\README.md` - Beskriver vilka typer av verktygsbeslut som ska lagras i beslutskatalogen.
+- `tools\docs\decissions\0001-session-bootstrap-via-browser.md` - Beslutsdokument som gör browserbootstrap till standard för UI-arbete.
+- `tools\docs\decissions\0002-katalogstruktur.md` - Beslutsdokument som gör katalogstrukturen styrande.
+- `tools\docs\decissions\0003-copilot-admin-bridge-evaluation.md` - Fastställer hur HTTP-API, filkö och named pipe ska testas mot samma praktiska case innan första Copilot-admin bridge-val låses.
+- `tools\docs\road-map\README.md` - Beskriver vad framtida verktygs-roadmaps ska innehålla.
+- `tools\docs\road-map\copilot-admin-control-plane.md` - Roadmap för en Docker-hostad control plane med Windows-runner, Copilot CLI och operativt stöd för SPS-regressioner.
+- `tools\docs\decissions\README.md` - Beskriver vilka typer av verktygsbeslut som ska lagras i beslutskatalogen.
 
 ## Runtime och källkod för verktyg
 
+- `runtime\README.md` - Beskriver runtime-strukturen med stabila root-wrappers samt Windows- och Docker-underkataloger.
 - `runtime\start-collaborative-stage-browser.ps1` - Körklar entrypoint för att starta synlig InPrivate/Incognito-browser för SPS-sessioner.
 - `runtime\open-shared-browser-tab.ps1` - Körklar entrypoint för att öppna en ny flik i samma delade browserfönster.
 - `runtime\inventory-kundtjanst-menus.ps1` - Körklar entrypoint för att extrahera Kundtjänstportalens menystruktur till rådata.
 - `runtime\generate-kundtjanst-function-doc.ps1` - Körklar entrypoint som genererar CSC-manual från insamlad rådata.
+- `runtime\start-copilot-admin-runner.ps1` - Stabil root-wrapper som startar HTTP-API-POC för lokal Windows-bunden host runner.
+- `runtime\show-regression-status.ps1` - Returnerar strukturerad status från host-runner-POC:n med testkatalog, senaste rapport och tillgängliga kommandomallar.
+- `runtime\render-regression-graph.ps1` - Returnerar Mermaid-källan för regressionsberoenden via host-runner-POC:n.
+- `runtime\bind-copilot-admin-terminal.ps1` - Binder ett synligt Copilot CLI-terminalfönster en gång per uppstart så Level 2-inmatning kan rikta sig till samma fönster även när andra fönster används.
+- `runtime\test-copilot-admin-bridge-level2-http.ps1` - Hämtar verifieringsprompt via HTTP-bridge och skickar den vidare till terminal-input-adaptern för Level 2-test.
+- `runtime\install-copilot-admin-node-pty-poc.ps1` - Stabil root-wrapper som installerar npm-beroenden för `node-pty`-baserad PTY-POC.
+- `runtime\start-copilot-admin-node-pty-window.ps1` - Stabil root-wrapper som öppnar ett synligt PowerShell-fönster med en node-pty-ägd Copilot CLI-session.
+- `runtime\send-copilot-admin-node-pty-input.ps1` - Stabil root-wrapper som köar text till den aktiva node-pty-ägda Copilot-sessionens inputkö.
+- `runtime\windows\copilot-admin\bridge\submit-copilot-admin-queue-job.ps1` - Lägger ett standardiserat kommandoobjekt i filkö-POC:n.
+- `runtime\windows\copilot-admin\bridge\process-copilot-admin-queue-once.ps1` - Processar ett enskilt köjobb i filkö-POC:n.
+- `runtime\windows\copilot-admin\bridge\invoke-copilot-admin-pipe-request.ps1` - Skickar en klientförfrågan till named-pipe-POC:n.
+- `runtime\windows\copilot-admin\terminal\invoke-copilot-admin-terminal-input.ps1` - Armerad Windows-adapter som kan torrköra eller klistra in ett verifieringskommando i terminalfönster.
+- `runtime\windows\copilot-admin\terminal\test-copilot-admin-bridge-level2-queue.ps1` - Hämtar verifieringsprompt via filkö-bridge och skickar den vidare till terminal-input-adaptern.
+- `runtime\windows\copilot-admin\terminal\test-copilot-admin-bridge-level2-pipe.ps1` - Hämtar verifieringsprompt via named-pipe-bridge och skickar den vidare till terminal-input-adaptern.
+- `runtime\windows\copilot-admin\pty\start-copilot-admin-owned-terminal-poc.ps1` - Startar en synlig Copilot CLI-session från host runnern som POC för runner-startad samarbetsyta.
+- `runtime\windows\copilot-admin\pty\test-copilot-admin-owned-stdio-poc.ps1` - Verifierar att host runnern kan äga stdout/stderr för icke-interaktiva Copilot CLI-kommandon.
+- `runtime\windows\copilot-admin\pty\test-copilot-admin-conpty-probe.ps1` - Kör ett säkert Windows ConPTY-probe för att verifiera att host runnern kan äga en pseudo-terminal.
+- `runtime\windows\copilot-admin\pty\test-copilot-admin-conpty-scripted.ps1` - Kör ett kommando genom Windows ConPTY med valfri scriptad input.
+- `runtime\windows\copilot-admin\pty\start-copilot-admin-conpty-session.ps1` - Startar Copilot CLI i en runner-ägd ConPTY-wrapper.
+- `runtime\windows\copilot-admin\node-pty\test-copilot-admin-node-pty-probe.ps1` - Kör ett säkert `node-pty`-probe för att verifiera PTY-ägande utan Copilot.
+- `runtime\windows\copilot-admin\node-pty\test-copilot-admin-node-pty-copilot-version.ps1` - Kör `copilot --version` genom `node-pty`.
+- `runtime\windows\copilot-admin\node-pty\test-copilot-admin-node-pty-copilot-prompt.ps1` - Testar ett icke-interaktivt `copilot -p`-kommando genom `node-pty`.
+- `runtime\windows\copilot-admin\node-pty\start-copilot-admin-node-pty-session.ps1` - Startar Copilot CLI i en `node-pty`-ägd interaktiv wrapper.
+- `runtime\windows\copilot-admin\node-pty\start-copilot-admin-node-pty-window.ps1` - Startar den interaktiva node-pty-wrappern i ett nytt synligt PowerShell-fönster för användar-/agent-samarbete.
+- `runtime\windows\copilot-admin\node-pty\send-copilot-admin-node-pty-input.ps1` - Köar text till den aktiva interaktiva node-pty-wrappern utan att använda Windows foreground/SendKeys.
+- `runtime\windows\copilot-admin\node-pty\Resolve-NodePtyTooling.ps1` - Hjälpfunktion som hittar `node` och `npm` via PATH eller standardinstallationsvägar.
 - `runtime\test-document-index.ps1` - Körklar regressionstest som verifierar att alla beständiga dokument/datafiler är registrerade i detta index.
 - `runtime\test-kallinventering-coverage.ps1` - Körklar regressionstest som verifierar att `syntetisk_data\common\kallinventering.md` täcker aktuellt innehåll i `raw_data`.
 - `runtime\test-regression-dependencies.ps1` - Körklar regressionstest som verifierar att regressionstesternas metadata, katalog och Mermaid-beroenden är synkade.
 - `tools\source\browser_collaboration\Start-CollaborativeBrowserSession.ps1` - Källkod för browserbootstrap med remote debugging.
 - `tools\source\browser_collaboration\Open-SharedBrowserTab.ps1` - Källkod för att öppna en ny flik i samma delade browserfönster via befintlig sidtarget.
 - `tools\source\browser_collaboration\Invoke-KundtjanstMenuInventory.ps1` - Källkod för menyinventering via browser-debuggränssnittet.
+- `tools\source\copilot_admin_runner\copilot_admin_runner.py` - Host-runner-POC som läser regressionstillgångar och provar HTTP-, filkö- och named-pipe-bryggor för en framtida Docker-control-plane.
+- `tools\source\copilot_admin_runner\Bind-CopilotTerminalWindow.ps1` - Källkod för att binda ett synligt Copilot CLI-terminalfönster till en sparad window handle inför säker Level 2-inmatning.
+- `tools\source\copilot_admin_runner\Invoke-TerminalInputAdapter.ps1` - Källkod för armerad terminal-input-adapter som loggar och testar om ett bridge-genererat kommando kan klistras in i aktiv Copilot CLI-terminal.
+- `tools\source\copilot_admin_runner\Start-OwnedCopilotSessionPoc.ps1` - Källkod för POC kring runner-startad synlig Copilot-session och redirectad stdio-probe.
+- `tools\source\copilot_admin_runner\owned_copilot_pty.py` - Python/ctypes-baserad Windows ConPTY-POC för runner-ägd pseudo-terminal utan externa beroenden.
+- `tools\source\copilot_admin_runner\node_pty_poc\package.json` - Node.js-beroendemanifest för robustare `node-pty`-baserad PTY-POC.
+- `tools\source\copilot_admin_runner\node_pty_poc\package-lock.json` - Låser installerade npm-beroenden för `node-pty`-baserad PTY-POC.
+- `tools\source\copilot_admin_runner\node_pty_poc\node_pty_poc.mjs` - `node-pty`-baserad POC för runner-ägd stdin/stdout, Copilot-versionstest, Copilot-prompttest och interaktiv wrapper.
 - `tools\source\documentation_generation\generate_kundtjanst_function_doc.py` - Källkod som omvandlar inventeringsdata till markdownmanual.
 - `tools\source\document_index_validation\validate_document_index.py` - Validerar att dokument/datafiler i repositoryt finns refererade i detta index.
 - `tools\source\document_index_validation\validate_kallinventering_coverage.py` - Validerar att `kallinventering.md` täcker alla spårade källor i `raw_data` och spårar dem till berörda syntetiska dokument.

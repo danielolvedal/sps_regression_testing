@@ -15,11 +15,11 @@ Detta repository används för att samla, strukturera och producera dokumentatio
 - Lägg AI-strukturerad bearbetning i `syntetisk_data`.
 - Lägg verktygskällkod i `tools\source`.
 - Lägg verktygsdokumentation i `tools\docs`.
-- Lägg verktygsbeslut i `tools\decisions`.
-- Lägg verktygsroadmaps i `tools\road-map`.
+- Lägg verktygsbeslut i `tools\docs\decissions`.
+- Lägg verktygsroadmaps i `tools\docs\road-map`.
 - Lägg körklara entrypoints i `runtime`.
 - Lägg färdiga manualer i relevant katalog under `manuals`.
-- Lägg temporära filer **endast** i `tmp`.
+- Lägg temporära filer **endast** i repositoryrotens `tmp`. Skapa aldrig `tmp`-kataloger under `tools` eller andra underkataloger.
 
 ## Standardstart för UI-arbete
 
