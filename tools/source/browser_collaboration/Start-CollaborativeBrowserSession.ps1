@@ -4,13 +4,13 @@ param(
     [string]$Browser = 'auto',
     [int]$Port = 9222,
     [string]$ProfileDir,
-    [switch]$ReuseExisting
+    [switch]$ReuseExisting = $true
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 if (-not $ProfileDir) {
     $ProfileDir = Join-Path $repoRoot "tmp\browser-profile-$Port"
 }

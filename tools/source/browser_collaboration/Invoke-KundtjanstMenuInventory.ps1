@@ -8,7 +8,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 if (-not $OutFile) {
     $OutFile = Join-Path $repoRoot 'raw_data\kundtjanst-funktioner-data.json'
 }

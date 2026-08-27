@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SPS Copilot-admin</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app-shell" class="shell">
+      <header class="topbar" data-testid="topbar">
+        <div>
+          <p class="eyebrow">SPS control plane</p>
+          <h1>Copilot-admin</h1>
+        </div>
+        <div class="topbar-status">
+          <span class="pill" data-testid="environment-label">Stage</span>
+          <span id="mode-label" class="pill" data-testid="mode-label">Mode: unknown</span>
+          <span id="host-runner-status" class="pill" data-testid="host-runner-status">Host runner: unknown</span>
+          <span id="status-diode" class="status-diode status-red" data-testid="status-diode" title="No active job">
+            <span></span>
+            <strong>Röd</strong>
+          </span>
+        </div>
+      </header>
+
+      <aside class="sidebar" data-testid="left-nav">
+        <nav>
+          <button class="nav-item active" data-view="dashboard" data-testid="nav-dashboard">Dashboard</button>
+          <button class="nav-item" data-view="copilot" data-testid="nav-copilot">Copilot</button>
+          <button class="nav-item" data-view="regressioner" data-testid="nav-regressioner">Regressioner</button>
+          <button class="nav-item" data-view="mermaid" data-testid="nav-mermaid">Mermaid</button>
+          <button class="nav-item" data-view="rapporter" data-testid="nav-rapporter">Rapporter</button>
+          <button class="nav-item" data-view="jobb" data-testid="nav-jobb">Jobb</button>
+          <button class="nav-item" data-view="loggar" data-testid="nav-loggar">Loggar</button>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <section id="view-dashboard" class="view active" data-testid="view-dashboard">
+          <div class="hero">
+            <div>
+              <p class="eyebrow">Operativ översikt</p>
+              <h2>Dashboard</h2>
+              <p>Övervaka Copilot-session, browser, jobb, rapporter och oöppnade resultat utan att blockera på Copilot.</p>
+            </div>
+            <div class="startup-actions">
+              <label class="toggle-row" for="copilot-window-visible-toggle">
+                <input id="copilot-window-visible-toggle" data-testid="copilot-window-visible-toggle" type="checkbox" checked />
+                <span>Visa Copilot-motorfönster</span>
+              </label>
+              <button class="primary" id="start-session-button" data-testid="start-session-button">Starta adminsession</button>
+            </div>
+          </div>
+          <div class="cards" data-testid="dashboard-cards">
+            <article class="card"><span>Copilot</span><strong id="card-copilot">unknown</strong><small id="card-copilot-tail">Ingen output ännu</small></article>
+            <article class="card"><span>Browser</span><strong id="card-browser">unknown</strong><small id="card-browser-tail">Ingen debug-port</small></article>
+            <article class="card"><span>Senaste jobb</span><strong id="card-job">Inget jobb</strong><small id="card-job-tail">Skapa ett jobb från Regressioner eller Mode.</small></article>
+            <article class="card"><span>Senaste rapport</span><strong id="card-report">Ingen rapport</strong><small id="card-report-tail">Rapporter läses från backend.</small></article>
+            <article class="card danger"><span>Senaste fel</span><strong id="card-error">Inget verifierat fel</strong><small id="card-error-tail">Fel visas här när backend rapporterar dem.</small></article>
+          </div>
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Copilot-läge</h3>
+              <p>Skapar asynkrona jobb och pollar status efteråt.</p>
+            </div>
+            <div class="segmented" data-testid="mode-controls">
+              <button id="learning-mode-button" data-mode="learning" data-testid="learning-mode-button">Learning mode</button>
+              <button id="testing-mode-button" data-mode="testing" data-testid="testing-mode-button">Testing mode</button>
+            </div>
+          </section>
+        </section>
+
+        <section id="view-copilot" class="view" data-testid="view-copilot">
+          <div class="panel-header">
+            <h2>Copilot-konsol</h2>
+            <p>Stabil tvåpanelsyta: läs output här och skicka input utan att fokusera det råa CLI-fönstret.</p>
+          </div>
+          <section class="copilot-console" data-testid="copilot-console">
+            <div class="copilot-console-header">
+              <div>
+                <span class="eyebrow">Read-only transcript</span>
+                <strong id="copilot-console-title">Copilot output</strong>
+              </div>
+              <div class="topbar-status">
+                <span id="copilot-console-status" class="pill" data-testid="copilot-console-status">Status: unknown</span>
+                <span id="copilot-window-mode" class="pill" data-testid="copilot-window-mode">Motor: synlig</span>
+                <span id="copilot-console-model" class="pill" data-testid="copilot-console-model">Model: gpt-5-mini</span>
+                <span id="copilot-console-permissions" class="pill" data-testid="copilot-console-permissions">Permissions: allow-all</span>
+              </div>
+            </div>
+            <div id="copilot-console-output" class="copilot-console-output" data-testid="copilot-console-output" role="log" aria-live="polite">Väntar på Copilot-transcript...</div>
+            <form id="copilot-console-form" class="copilot-console-form" data-testid="copilot-console-form">
+              <label for="copilot-console-input">Skriv till samma Copilot-session</label>
+              <div class="copilot-console-input-row">
+                <textarea id="copilot-console-input" data-testid="copilot-console-input" rows="3" placeholder="Skriv din prompt här"></textarea>
+                <button class="primary" id="copilot-console-send" data-testid="copilot-console-send" type="submit">Skicka</button>
+              </div>
+              <div class="copilot-console-special-actions" aria-label="Specialkommandon">
+                <button id="copilot-console-send-esc" data-testid="copilot-console-send-esc" type="button">Skicka ESC</button>
+                <button id="copilot-console-send-tab" data-testid="copilot-console-send-tab" type="button">Skicka TAB</button>
+              </div>
+              <small id="copilot-console-hint" data-testid="copilot-console-hint">Redo.</small>
+            </form>
+          </section>
+        </section>
+
+        <section id="view-regressioner" class="view" data-testid="view-regressioner">
+          <div class="panel-header">
+            <h2>Regressioner</h2>
+            <p>Välj test och skapa asynkrona Copilot-jobb via backend.</p>
+          </div>
+          <div class="toolbar">
+            <button class="primary" id="run-all-button" data-testid="run-all-regressions-button">Kör alla regressionstester</button>
+            <button id="run-selected-button" data-testid="run-selected-regression-button">Kör valt test</button>
+            <select id="regression-select" data-testid="regression-select"></select>
+          </div>
+          <div id="regression-list" class="list" data-testid="regression-list"></div>
+        </section>
+
+        <section id="view-mermaid" class="view" data-testid="view-mermaid">
+          <div class="panel-header">
+            <h2>Mermaid beroendegraf</h2>
+            <p>Zooma, panorera, scrolla, sök och återställ stora diagram.</p>
+          </div>
+          <div class="toolbar">
+            <button id="mermaid-zoom-in" data-testid="mermaid-zoom-in">Zooma in</button>
+            <button id="mermaid-zoom-out" data-testid="mermaid-zoom-out">Zooma ut</button>
+            <button id="mermaid-fit" data-testid="mermaid-fit">Fit-to-screen</button>
+            <button id="mermaid-reset" data-testid="mermaid-reset">Reset</button>
+            <input id="mermaid-search" data-testid="mermaid-search" type="search" placeholder="Sök/filter test-ID" />
+          </div>
+          <div id="mermaid-viewport" class="mermaid-viewport" data-testid="mermaid-viewport">
+            <div id="mermaid-canvas" class="mermaid-canvas" data-testid="mermaid-canvas"></div>
+          </div>
+          <details class="source-details">
+            <summary>Visa Mermaid-källa</summary>
+            <pre id="mermaid-source" data-testid="mermaid-source"></pre>
+          </details>
+        </section>
+
+        <section id="view-rapporter" class="view" data-testid="view-rapporter">
+          <div class="panel-header">
+            <h2>Rapporter</h2>
+            <p>Läs Markdown-rapporter i en formaterad vy.</p>
+          </div>
+          <input id="report-filter" data-testid="report-filter" type="search" placeholder="Filtrera rapporter" />
+          <div class="split">
+            <div id="report-list" class="list" data-testid="report-list"></div>
+            <article id="report-reader" class="markdown-reader" data-testid="report-reader">
+              <p>Välj en rapport.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="view-jobb" class="view" data-testid="view-jobb">
+          <div class="panel-header">
+            <h2>Jobb</h2>
+            <p>Följ köade, aktiva och slutförda jobb. Öppnade resultat markeras i backend.</p>
+          </div>
+          <div id="job-list" class="list" data-testid="job-list"></div>
+        </section>
+
+        <section id="view-loggar" class="view" data-testid="view-loggar">
+          <div class="panel-header">
+            <h2>Frontend-loggar</h2>
+            <p>Senaste lokala JSON-events som även skickas till backend när API:t är tillgängligt.</p>
+          </div>
+          <pre id="frontend-log" class="log-view" data-testid="frontend-log"></pre>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

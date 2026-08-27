@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlparse
 
 
-REPO_ROOT = Path(r"C:\Copilot_projects\SPS")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_PATH = REPO_ROOT / "raw_data" / "kundtjanst-funktioner-data.json"
 OUT_PATH = REPO_ROOT / "manuals" / "csc_user_manuals" / "Kundtjänst - funktioner.md"
 

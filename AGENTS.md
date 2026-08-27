@@ -15,11 +15,11 @@ Detta repository används för att samla, strukturera och producera dokumentatio
 - Lägg AI-strukturerad bearbetning i `syntetisk_data`.
 - Lägg verktygskällkod i `tools\source`.
 - Lägg verktygsdokumentation i `tools\docs`.
-- Lägg verktygsbeslut i `tools\decisions`.
-- Lägg verktygsroadmaps i `tools\road-map`.
+- Lägg verktygsbeslut i `tools\docs\decissions`.
+- Lägg verktygsroadmaps i `tools\docs\road-map`.
 - Lägg körklara entrypoints i `runtime`.
 - Lägg färdiga manualer i relevant katalog under `manuals`.
-- Lägg temporära filer **endast** i `tmp`.
+- Lägg temporära filer **endast** i repositoryrotens `tmp`. Skapa aldrig `tmp`-kataloger under `tools` eller andra underkataloger.
 
 ## Standardstart för UI-arbete
 
@@ -32,6 +32,23 @@ När uppgiften kräver inloggning, UI-observation eller gemensam browserstyrning
 Arbetsmodellen för detta finns i:
 
 - `tools\docs\browser-samarbete-stage-session.md`
+
+## Copilot-admin testisolering
+
+Det är **obligatoriskt** att hålla användarens/produktionssessionens Copilot-motor separerad från automatiserade tester.
+
+- Produktionssessionens runner-state finns i `tmp\copilot_admin_runner_state`.
+- Vanliga backend-, frontend- och dev-E2E-tester får **aldrig** läsa från eller skriva till `tmp\copilot_admin_runner_state`.
+- Vanliga dev-tester ska använda injicerad host-state och testköer under `tmp\copilot_admin_control_plane`.
+- Full real-E2E får prata med en riktig Copilot CLI, men bara via en **separat dold testsession** med egen state-katalog.
+- Den isolerade real-E2E-state-katalogen ska vara `tmp\copilot_admin_control_plane\real_visible_e2e\runner_state`, normalt via miljövariabeln `COPILOT_ADMIN_RUNNER_STATE_DIR`.
+- Real-E2E ska normalt använda separat browserport `9322`, inte användarens produktions-/samarbetsbrowser på `9222`.
+- Om ett test behöver verifiera verklig Copilot-input ska testet starta eller använda den isolerade dolda testsessionen; det får inte återanvända användarens synliga Copilot-session.
+- Ett E2E-resultat är ogiltigt om testet har skrivit testprompter till produktionskön `tmp\copilot_admin_runner_state\node-pty-copilot-input-queue`.
+
+Den detaljerade testmodellen finns i:
+
+- `tools\docs\copilot-admin-e2e-critical-coverage.md`
 
 ## Dokumentstruktur är styrande
 

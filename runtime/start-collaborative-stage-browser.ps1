@@ -1,6 +1,6 @@
 param(
     [int]$Port = 9222,
-    [switch]$ReuseExisting
+    [switch]$ReuseExisting = $true
 )
 
 Set-StrictMode -Version Latest
