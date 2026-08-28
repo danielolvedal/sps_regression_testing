@@ -1,11 +1,11 @@
-# Copilot console latency, layout and startup-policy plan
+# AI console latency, layout and startup-policy plan
 
 ## Goal
 
 The Copilot-admin console must control a real node-pty-owned Copilot CLI session without mixing production and test traffic. It must automatically prepare a controlled session for work, render the same meaningful terminal state as the Copilot CLI window, and meet strict latency guarantees:
 
-- Copilot output must reach the frontend console within 200 ms through the owned transcript/event path.
-- Frontend console input must be accepted and handed to host-runner or the isolated node-pty queue within 500 ms.
+- Copilot output must reach AI-konsolen within 200 ms through the owned transcript/event path.
+- AI-console input must be accepted and handed to host-runner or the isolated node-pty queue within 500 ms.
 - Green UI badges mean verified active state, never merely requested configuration.
 
 ## Fleet workstream A: startup policy and verified state
@@ -44,7 +44,7 @@ Owned files:
 
 Tasks:
 
-1. Use Server-Sent Events from `/api/copilot/console/events` as the primary console-output transport.
+1. Use Server-Sent Events from `/api/ai-console/events` as the primary AI-console output transport.
 2. Keep cursor-based transcript recovery for reconnects and long runs.
 3. Keep node-pty input queue polling fast enough for the 500 ms requirement; current protected value is 50 ms.
 4. Preserve timestamp fields across frontend, backend, queue, and PTY injection for real-path diagnostics.
@@ -52,7 +52,7 @@ Tasks:
 Acceptance:
 
 - Backend latency regression fails if an isolated transcript delta takes 200 ms or more to appear on the SSE stream.
-- Dev E2E fails if console input enqueue takes 500 ms or more.
+- Dev E2E fails if AI-console input enqueue takes 500 ms or more.
 - Frontend static validation fails if EventSource integration is removed.
 
 ## Fleet workstream C: layout parity and terminal cleanup

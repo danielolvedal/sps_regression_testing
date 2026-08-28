@@ -65,6 +65,19 @@ Control plane ska då visa en lokal webbsida, exempelvis `http://localhost:<port
 | Synlig browser | Gemensam testyta där användaren kan logga in och Copilot kan observera/styra UI. |
 | Web control plane | Administrativ vy för status, rapporter, Mermaid-graf, loggar och standardiserade åtgärder. |
 
+## Synlig localhost-browser för Copilot-admin
+
+När arbetet gäller själva Copilot-admin-webben på localhost ska den synliga browsern startas separat från stage-browsern:
+
+```powershell
+.\runtime\start-collaborative-copilot-admin-browser.ps1
+```
+
+Den öppnar normalt `http://127.0.0.1:8765/` i en dedikerad synlig browser med egen debug-port. Den browsern är avsedd för användar-/agentsamarbete i frontendarbetet och ska hållas separat från både:
+
+- stage-browsern på debug-port `9222`
+- automationsbrowsern för real-E2E på debug-port `9322`
+
 ## Viktig avgränsning för Copilot-sessionen
 
 I första fungerande versionen ska Copilot-sessionen **inte** flyttas in i webgränssnittet.
@@ -73,7 +86,7 @@ Skälet är att projektets fungerande arbetssätt bygger på att användaren och
 
 Första säkra målbilden är därför:
 
-- webben visar färdiga kommandon och åtgärder
+- webben visar färdiga kommandon, AI-konsolen och åtgärder
 - host runnern kan returnera ett standardiserat prompt-/kommandoobjekt
 - användaren eller en kontrollerad host-side-brygga för in kommandot i Copilot CLI-sessionen
 - faktisk testkörning och dokumentändring sker fortfarande i den gemensamma Copilot CLI-sessionen

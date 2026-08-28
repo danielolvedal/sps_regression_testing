@@ -16,6 +16,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\regressionstest-arbetsmodell.md` - Fastställer hur agenter ska tolka kommandon om regressionstest och hur UI-regressioner körs som instruktionsstyrda testfall.
 - `tools\docs\regression-rapportering.md` - Defines the formal-English reporting standard for `test_reports`, including summaries and verified defect folders.
 - `tools\docs\browser-samarbete-stage-session.md` - Beskriver standardmodellen för synlig browser-session med agent/användar-samarbete.
+- `tools\docs\copilot-admin-browser-lagen.md` - Förtydligar skillnaden mellan synlig localhost-browser för manuellt Copilot-admin-arbete, stage-browsern och den isolerade automationsbrowsern för real-E2E.
 - `tools\docs\copilot-admin-runner-poc.md` - Beskriver den första host-runner-POC:n för status, rapportläsning, Mermaid-graf och tre möjliga bryggspår mellan Windows och Docker-control-plane.
 - `tools\docs\copilot-admin-host-runner-adapter.md` - Definierar Windows host-runner-kontraktet för backend/control-plane med Copilot-/browserstatus, start/stopp och säker inputkö.
 - `tools\docs\copilot-admin-e2e-critical-coverage.md` - Maps Copilot-admin user stories to E2E/static/dry-run validations, documents the mandatory separation between production Copilot sessions and hidden isolated real-E2E sessions, and records remaining real-integration gaps.
@@ -27,16 +28,17 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\decissions\0003-copilot-admin-bridge-evaluation.md` - Fastställer hur HTTP-API, filkö och named pipe ska testas mot samma praktiska case innan första Copilot-admin bridge-val låses.
 - `tools\docs\road-map\README.md` - Beskriver vad framtida verktygs-roadmaps ska innehålla.
 - `tools\docs\road-map\copilot-admin-control-plane.md` - Roadmap för en Docker-hostad control plane med Windows-runner, Copilot CLI och operativt stöd för SPS-regressioner.
-- `tools\docs\road-map\copilot-console-latency-layout-startup-plan.md` - Fleet-färdig plan för Copilot-konsolens startup-policy, latencykrav, layoutparitet, regressioner och integration.
+- `tools\docs\road-map\ai-console-latency-layout-startup-plan.md` - Fleet-färdig plan för AI-konsolens startup-policy, latencykrav, layoutparitet, regressioner och integration.
 - `tools\docs\decissions\README.md` - Beskriver vilka typer av verktygsbeslut som ska lagras i beslutskatalogen.
 
 ## Runtime och källkod för verktyg
 
-- `start_tool.ps1` - Enkel rot-entrypoint som startar Regression tool suite: host-runner API, backend/frontend, gemensam Copilot-session och gemensam browser samt skriver ut separat admin-UI-URL.
+- `start_tool.ps1` - Enkel rot-entrypoint som startar Regression tool suite: host-runner API samt backend/frontend, men låter AI-konsolen starta Copilot vid behov om inte `-StartCopilotSession` används.
 - `install_tool.ps1` - Enkel rot-entrypoint som kor pre-flight, installerar saknade beroenden och bara markerar installationen som klar nar `start_tool.ps1`-kraven ar uppfyllda.
 - `runtime\README.md` - Beskriver runtime-strukturen med stabila root-wrappers samt Windows- och Docker-underkataloger.
 - `runtime\install_tool.ps1` - Stabil root-wrapper som kor Windows-installern for `start_tool.ps1` med pre-flight forst.
 - `runtime\start-collaborative-stage-browser.ps1` - Körklar entrypoint för att starta synlig InPrivate/Incognito-browser för SPS-sessioner.
+- `runtime\start-collaborative-copilot-admin-browser.ps1` - Körklar entrypoint för att starta synlig browser för Copilot-admins localhost-UI på separat debug-port.
 - `runtime\open-shared-browser-tab.ps1` - Körklar entrypoint för att öppna en ny flik i samma delade browserfönster.
 - `runtime\inventory-kundtjanst-menus.ps1` - Körklar entrypoint för att extrahera Kundtjänstportalens menystruktur till rådata.
 - `runtime\generate-kundtjanst-function-doc.ps1` - Körklar entrypoint som genererar CSC-manual från insamlad rådata.
@@ -76,7 +78,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `runtime\docker\copilot-admin\start-backend.ps1` - Startar Copilot-admin control-plane UI/API direkt från repositoryt med Python stdlib HTTP-server.
 - `runtime\docker\copilot-admin\build-backend-image.ps1` - Bygger Docker-image för Copilot-admin control-plane UI/API och visar körkommando med repo-mount.
 - `runtime\docker\copilot-admin\test-e2e-dev.ps1` - Kör utvecklings-E2E för Copilot-admin mot riktig backend, statiskt frontendkontrakt, browser-E2E och injicerad säker host-state.
-- `runtime\docker\copilot-admin\test-real-visible-e2e.ps1` - Kör real visible E2E genom att starta host-runner API, backend, synlig node-pty Copilot-session och collaborative browser.
+- `runtime\docker\copilot-admin\test-real-visible-e2e.ps1` - Kör real visible E2E genom att starta host-runner API, backend, dold isolerad Copilot-helper och separat collaborative browser för automation.
 - `runtime\windows\copilot-admin\host-runner\invoke-copilot-admin-host-runner.ps1` - Windows-wrapper för backendvänliga host-runner-kommandon.
 - `runtime\windows\copilot-admin\host-runner\start-copilot-admin-host-runner-api.ps1` - Startar Windows host-runnerns HTTP API för real-runner bridge från backend.
 - `runtime\windows\copilot-admin\host-runner\test-copilot-admin-host-runner-status-input.ps1` - Verifierar maskinläsbar Copilot-sessionstatus och inputkö i torrkörning.
@@ -88,6 +90,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `runtime\test-kallinventering-coverage.ps1` - Körklar regressionstest som verifierar att `syntetisk_data\common\kallinventering.md` täcker aktuellt innehåll i `raw_data`.
 - `runtime\test-regression-dependencies.ps1` - Körklar regressionstest som verifierar att regressionstesternas metadata, katalog och Mermaid-beroenden är synkade.
 - `tools\source\browser_collaboration\Start-CollaborativeBrowserSession.ps1` - Källkod för browserbootstrap med remote debugging.
+- `tools\source\browser_collaboration\Start-CollaborativeCopilotAdminBrowserSession.ps1` - Källkod för den synliga Copilot-admin-localhost-browsern med separat debug-port och tydlig rollseparation mot stage och automation.
 - `tools\source\browser_collaboration\Open-SharedBrowserTab.ps1` - Källkod för att öppna en ny flik i samma delade browserfönster via befintlig sidtarget.
 - `tools\source\browser_collaboration\Invoke-KundtjanstMenuInventory.ps1` - Källkod för menyinventering via browser-debuggränssnittet.
 - `tools\source\copilot_admin_runner\copilot_admin_runner.py` - Host-runner-POC som läser regressionstillgångar och provar HTTP-, filkö- och named-pipe-bryggor för en framtida Docker-control-plane.
@@ -102,6 +105,9 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\source\copilot_admin_control_plane\backend\app.py` - Python stdlib-backend för Copilot-admin control plane med health/status, regression, rapport-, jobb-, logg- och E2E-control-API:er.
 - `tools\source\copilot_admin_control_plane\backend\test_app.py` - Smoke-/unittest-svit för Copilot-admin backendens API-kontrakt och säkra rapportläsning.
 - `tools\source\copilot_admin_control_plane\backend\Dockerfile` - Containerdefinition för backenddelen av Copilot-admin control plane.
+- `tools\source\copilot_admin_control_plane\e2e\package.json` - Node-manifest för Playwright-baserad real-E2E mot Copilot-admin.
+- `tools\source\copilot_admin_control_plane\e2e\package-lock.json` - Låser npm-beroenden för Playwright-baserad real-E2E mot Copilot-admin.
+- `tools\source\copilot_admin_control_plane\e2e\real_visible_playwright_e2e.mjs` - Playwright-harness för verklig isolerad Copilot-admin-E2E med readiness-badges och latensartefakter.
 - `tools\source\copilot_admin_control_plane\e2e\test_control_plane_dev_e2e.py` - Utvecklings-E2E som verifierar startup/API/UI-kontrakt, statusdiod, jobbcykel, rapporter, Mermaid, asynkronitet och loggkorrelation mot injicerad host-state.
 - `tools\source\copilot_admin_control_plane\e2e\test_frontend_browser_e2e.py` - Browserbaserad E2E via Chrome/Edge CDP för Copilot-admin frontendens dashboard, statusdiod, modekontroller, regressionjobb, rapportläsare, loggar och Mermaid-interaktioner.
 - `tools\source\copilot_admin_control_plane\frontend\index.html` - Frontendskal för Copilot-admin med dashboard, regressioner, Mermaid, rapporter, jobb och loggar.

@@ -109,5 +109,5 @@ while ((Get-Date) -lt $deadline -and -not (Test-Path $statePath)) {
     hidden = [bool]$Hidden
     visible_window_expected = -not [bool]$Hidden
     restart_existing = [bool]$RestartExisting
-    note = if ($Hidden) { 'The node-pty-owned Copilot CLI session is running in a hidden helper process. Use the frontend Copilot console for input/output.' } else { 'A visible PowerShell window should now contain the node-pty-owned Copilot CLI session.' }
+    note = if ($Hidden) { 'The node-pty-owned Copilot CLI session is running in a hidden helper process. Use the frontend AI console for input/output.' } else { 'A visible PowerShell window should now contain the node-pty-owned Copilot CLI session.' }
 } | ConvertTo-Json -Depth 10

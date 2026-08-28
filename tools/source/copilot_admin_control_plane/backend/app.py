@@ -405,7 +405,7 @@ class ControlPlaneBackend:
                 state.setdefault("last_output_tail", "")
         return state
 
-    def copilot_console(self, snapshot: dict[str, Any] | None = None, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    def ai_console(self, snapshot: dict[str, Any] | None = None, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         session = self.copilot_session(snapshot)
         transcript = str(session.get("last_output_tail") or "")
         status = str(session.get("status", "unknown"))
@@ -414,12 +414,20 @@ class ControlPlaneBackend:
         current_model = session.get("current_model") or session.get("model_hint")
         configured_model = session.get("startup_model")
         model_verified = bool(session.get("model_verified") or session.get("current_model"))
+        directory_trust_requested = bool(session.get("directory_trust_requested"))
+        directory_trust_verified = bool(session.get("directory_trust_verified"))
+        permissions_allow_all_requested = bool(
+            session.get("startup_allow_all_requested")
+            or session.get("startup_allow_all")
+            or session.get("allow_all_verified")
+        )
         permissions_allow_all_verified = bool(
             session.get("permissions_allow_all")
             or session.get("allow_all_verified")
         )
-        permissions_hint = session.get("permissions_hint") or ("allow-all" if permissions_allow_all_verified else None)
-        command_ready = status == "running" and not bool(session.get("user_input_required")) and permissions_allow_all_verified
+        permissions_verified = permissions_allow_all_verified and (directory_trust_verified or not directory_trust_requested)
+        permissions_hint = session.get("permissions_hint") or ("allow-all" if permissions_verified or permissions_allow_all_requested else None)
+        command_ready = status == "running" and not bool(session.get("user_input_required")) and permissions_verified
         query = query or {}
         requested_cursor = self._int_query_value(query, "cursor")
         requested_limit = self._int_query_value(query, "limit") or DEFAULT_CONSOLE_TAIL_BYTES
@@ -484,7 +492,8 @@ class ControlPlaneBackend:
             "configured_model": configured_model,
             "model_verified": model_verified,
             "permissions_hint": permissions_hint,
-            "permissions_verified": permissions_allow_all_verified,
+            "permissions_verified": permissions_verified,
+            "directory_trust_verified": directory_trust_verified,
             "command_ready": command_ready,
         }
 
@@ -546,6 +555,22 @@ class ControlPlaneBackend:
         with transcript_path.open("rb") as handle:
             handle.seek(read_start)
             text = handle.read(limit).decode("utf-8", errors="replace")
+        needs_reset_tail = (
+            mode == "delta"
+            and (
+                "\b" in text
+                or "\x15" in text
+                or "\x1b" in text
+                or re.search(r"\r(?!\n)", text) is not None
+            )
+        )
+        if needs_reset_tail:
+            read_start = max(0, size - limit)
+            with transcript_path.open("rb") as handle:
+                handle.seek(read_start)
+                text = handle.read(limit).decode("utf-8", errors="replace")
+            mode = "reset_tail"
+            truncated = read_start > 0
         return {
             "mode": mode,
             "text": text,
@@ -687,7 +712,7 @@ class ControlPlaneBackend:
         request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"dispatched": True, "queue_file": rel_path(request_path)}
 
-    def send_copilot_console_input(self, payload: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
+    def send_ai_console_input(self, payload: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
         text = str(payload.get("text") if payload.get("text") is not None else payload.get("prompt") or "")
         if not text.strip() and text not in {"\t", "\x1b"}:
             raise ApiError(400, "text is required.")
@@ -696,7 +721,7 @@ class ControlPlaneBackend:
         request = {
             "job_id": job_id,
             "trace_id": trace_id or payload.get("trace_id") or uuid.uuid4().hex,
-            "type": "copilot_console_input",
+            "type": "ai_console_input",
             "prompt": text,
             "payload": {
                 "text": text,
@@ -721,8 +746,8 @@ class ControlPlaneBackend:
             dispatch = self.dispatch_to_node_pty(request)
             result = {"accepted": bool(dispatch.get("dispatched")), "target": "local-node-pty", "response": dispatch, "job_id": job_id}
         if not result["accepted"]:
-            raise ApiError(409, "Copilot console input could not be queued.", {"dispatch": result})
-        self.log("info", "backend", "copilot_console_input_sent", trace_id=request["trace_id"], job_id=job_id, status="queued", details={"submit": submit, "target": result["target"]})
+            raise ApiError(409, "AI console input could not be queued.", {"dispatch": result})
+        self.log("info", "backend", "ai_console_input_sent", trace_id=request["trace_id"], job_id=job_id, status="queued", details={"submit": submit, "target": result["target"]})
         result["accepted_at"] = request["payload"]["backend_accepted_at"]
         return result
 
@@ -907,7 +932,7 @@ class Handler(BaseHTTPRequestHandler):
             return True
         return getattr(exc, "winerror", None) in {64, 10053, 10054}
 
-    def stream_copilot_console_events(self, query: dict[str, list[str]]) -> None:
+    def stream_ai_console_events(self, query: dict[str, list[str]]) -> None:
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -920,7 +945,7 @@ class Handler(BaseHTTPRequestHandler):
         deadline = time.time() + float(os.environ.get("COPILOT_ADMIN_CONSOLE_EVENT_STREAM_SECONDS", "300"))
         last_heartbeat = 0.0
         base_query = {"cursor": [str(cursor)], "limit": [str(limit)]} if cursor is not None else {"limit": [str(limit)]}
-        base_console = self.app.copilot_console(query=base_query)
+        base_console = self.app.ai_console(query=base_query)
         base_console["streamed_at"] = utc_now()
         last_console_signature = (
             base_console.get("status"),
@@ -944,7 +969,7 @@ class Handler(BaseHTTPRequestHandler):
             cursor = transcript["next_cursor"]
         while time.time() < deadline:
             current_query = {"cursor": [str(cursor)], "limit": [str(limit)]} if cursor is not None else {"limit": [str(limit)]}
-            console = self.app.copilot_console(query=current_query)
+            console = self.app.ai_console(query=current_query)
             transcript = console.get("transcript") or {}
             text = str(transcript.get("text") or "")
             next_cursor = transcript.get("next_cursor")
@@ -996,10 +1021,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, self.app.status())
             elif path == "/api/session/copilot":
                 self.send_json(200, self.app.copilot_session())
-            elif path == "/api/copilot/console":
-                self.send_json(200, self.app.copilot_console(query=parse_qs(parsed.query)))
-            elif path == "/api/copilot/console/events":
-                self.stream_copilot_console_events(parse_qs(parsed.query))
+            elif path in {"/api/ai-console", "/api/copilot/console"}:
+                self.send_json(200, self.app.ai_console(query=parse_qs(parsed.query)))
+            elif path in {"/api/ai-console/events", "/api/copilot/console/events"}:
+                self.stream_ai_console_events(parse_qs(parsed.query))
             elif path == "/api/session/browser":
                 self.send_json(200, self.app.browser_session())
             elif path == "/api/regression/tests":
@@ -1046,8 +1071,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(201, self.app.create_job(str(body.get("type") or "custom"), body, trace_id))
             elif path == "/api/copilot/mode":
                 self.send_json(201, self.app.create_job("set_mode", body, trace_id))
-            elif path == "/api/copilot/input":
-                self.send_json(202, self.app.send_copilot_console_input(body, trace_id))
+            elif path in {"/api/ai-console/input", "/api/copilot/input"}:
+                self.send_json(202, self.app.send_ai_console_input(body, trace_id))
             elif path == "/api/regression/run":
                 self.send_json(201, self.app.create_job("run_regression", body, trace_id))
             elif path == "/api/frontend/events":

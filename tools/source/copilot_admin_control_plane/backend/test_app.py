@@ -112,7 +112,7 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertTrue(response["accepted"])
         self.assertEqual(response["trace_id"], "test-trace")
 
-    def test_copilot_console_reads_injected_state_and_queues_local_input(self) -> None:
+    def test_ai_console_reads_injected_state_and_queues_local_input(self) -> None:
         queue_dir = app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "backend-console-test-queue"
         queue_dir.mkdir(parents=True, exist_ok=True)
         for path in queue_dir.glob("*.json*"):
@@ -133,13 +133,13 @@ class BackendSmokeTests(unittest.TestCase):
             },
         )
 
-        status, console = self.request("GET", "/api/copilot/console")
+        status, console = self.request("GET", "/api/ai-console")
         self.assertEqual(status, 200)
         self.assertTrue(console["running"])
         self.assertTrue(console["user_input_required"])
         self.assertIn("Console transcript", console["transcript_tail"])
 
-        status, queued = self.request("POST", "/api/copilot/input", {"text": "svara ja"})
+        status, queued = self.request("POST", "/api/ai-console/input", {"text": "svara ja"})
         self.assertEqual(status, 202)
         self.assertTrue(queued["accepted"])
         self.assertEqual(queued["target"], "local-node-pty")
@@ -149,13 +149,13 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual("svara ja", queued_body["text"])
         self.assertTrue(queued_body["clear_line"])
 
-        status, tab_queued = self.request("POST", "/api/copilot/input", {"text": "\t", "submit": False, "clear_line": False})
+        status, tab_queued = self.request("POST", "/api/ai-console/input", {"text": "\t", "submit": False, "clear_line": False})
         self.assertEqual(status, 202)
         self.assertTrue(tab_queued["accepted"])
         queue_bodies = [json.loads(path.read_text(encoding="utf-8")) for path in queue_dir.glob("*.json")]
         self.assertTrue(any(body["text"] == "\t" and body["clear_line"] is False and body["submit"] is False for body in queue_bodies))
 
-    def test_copilot_console_does_not_verify_permissions_from_requested_policy_only(self) -> None:
+    def test_ai_console_does_not_verify_permissions_from_requested_policy_only(self) -> None:
         self.request(
             "POST",
             "/api/test/inject-host-state",
@@ -170,10 +170,10 @@ class BackendSmokeTests(unittest.TestCase):
                 }
             },
         )
-        status, console = self.request("GET", "/api/copilot/console")
+        status, console = self.request("GET", "/api/ai-console")
         self.assertEqual(status, 200)
         self.assertFalse(console["permissions_verified"])
-        self.assertIsNone(console["permissions_hint"])
+        self.assertEqual(console["permissions_hint"], "allow-all")
         self.assertFalse(console["model_verified"])
         self.assertIsNone(console["model_hint"])
         self.assertEqual(console["configured_model"], "gpt-5-mini")
@@ -193,13 +193,13 @@ class BackendSmokeTests(unittest.TestCase):
                 }
             },
         )
-        status, verified = self.request("GET", "/api/copilot/console")
+        status, verified = self.request("GET", "/api/ai-console")
         self.assertEqual(status, 200)
         self.assertTrue(verified["permissions_verified"])
         self.assertEqual(verified["permissions_hint"], "allow-all")
         self.assertTrue(verified["command_ready"])
 
-    def test_copilot_console_supports_cursor_based_transcript_polling(self) -> None:
+    def test_ai_console_supports_cursor_based_transcript_polling(self) -> None:
         transcript = app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "backend-console-transcript.txt"
         transcript.parent.mkdir(parents=True, exist_ok=True)
         transcript.write_text("line-1\nline-2\n", encoding="utf-8")
@@ -215,7 +215,7 @@ class BackendSmokeTests(unittest.TestCase):
                 }
             },
         )
-        status, first = self.request("GET", "/api/copilot/console?limit=1024")
+        status, first = self.request("GET", "/api/ai-console?limit=1024")
         self.assertEqual(status, 200)
         self.assertEqual(first["transcript"]["mode"], "tail")
         self.assertIn("line-2", first["transcript"]["text"])
@@ -223,13 +223,13 @@ class BackendSmokeTests(unittest.TestCase):
 
         with transcript.open("a", encoding="utf-8") as handle:
             handle.write("line-3\n")
-        status, second = self.request("GET", f"/api/copilot/console?cursor={cursor}&limit=1024")
+        status, second = self.request("GET", f"/api/ai-console?cursor={cursor}&limit=1024")
         self.assertEqual(status, 200)
         self.assertEqual(second["transcript"]["mode"], "delta")
         self.assertEqual(second["transcript"]["text"].replace("\r\n", "\n"), "line-3\n")
         self.assertGreater(second["transcript"]["next_cursor"], cursor)
 
-    def test_copilot_console_event_stream_delta_within_200ms(self) -> None:
+    def test_ai_console_event_stream_delta_within_200ms(self) -> None:
         transcript = app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "backend-console-sse-transcript.txt"
         transcript.parent.mkdir(parents=True, exist_ok=True)
         transcript.write_text("ready\n", encoding="utf-8")
@@ -246,7 +246,7 @@ class BackendSmokeTests(unittest.TestCase):
                 }
             },
         )
-        req = Request(f"http://127.0.0.1:{self.port}/api/copilot/console/events?cursor={cursor}&limit=1024", method="GET")
+        req = Request(f"http://127.0.0.1:{self.port}/api/ai-console/events?cursor={cursor}&limit=1024", method="GET")
         with urlopen(req, timeout=5) as response:
             deadline = time.perf_counter() + 2.0
             while time.perf_counter() < deadline:
@@ -266,26 +266,26 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertIn("sse-delta-line", payload)
         self.assertLess(elapsed, 0.2, "console SSE delta must arrive within 200 ms")
 
-    def test_copilot_console_rejects_empty_or_unavailable_input(self) -> None:
+    def test_ai_console_rejects_empty_or_unavailable_input(self) -> None:
         self.request("POST", "/api/test/reset", {})
         with self.assertRaises(HTTPError) as empty_ctx:
-            self.request("POST", "/api/copilot/input", {"text": "   "})
+            self.request("POST", "/api/ai-console/input", {"text": "   "})
         self.assertEqual(empty_ctx.exception.code, 400)
 
         self.request("POST", "/api/test/inject-host-state", {"copilot_state": {"status": "missing"}})
         with self.assertRaises(HTTPError) as missing_ctx:
-            self.request("POST", "/api/copilot/input", {"text": "hello"})
+            self.request("POST", "/api/ai-console/input", {"text": "hello"})
         self.assertEqual(missing_ctx.exception.code, 409)
 
     def test_test_environment_does_not_fallback_to_live_node_pty_state(self) -> None:
         self.request("POST", "/api/test/reset", {})
-        status, console = self.request("GET", "/api/copilot/console")
+        status, console = self.request("GET", "/api/ai-console")
         self.assertEqual(status, 200)
         self.assertEqual(console["status"], "missing")
         self.assertNotIn("tmp\\copilot_admin_runner_state", str(console.get("source", "")))
 
         with self.assertRaises(HTTPError) as missing_ctx:
-            self.request("POST", "/api/copilot/input", {"text": "must-not-reach-production-queue"})
+            self.request("POST", "/api/ai-console/input", {"text": "must-not-reach-production-queue"})
         self.assertEqual(missing_ctx.exception.code, 409)
 
     def test_local_node_pty_state_requires_live_wrapper_process(self) -> None:
@@ -320,12 +320,12 @@ class BackendSmokeTests(unittest.TestCase):
         app.NODE_PTY_WINDOW_STATE_PATH = window_state_path
         try:
             backend = app.ControlPlaneBackend(app.REPO_ROOT)
-            console = backend.copilot_console()
+            console = backend.ai_console()
             self.assertEqual(console["status"], "not_running")
             self.assertFalse(console["running"])
             self.assertFalse(console["visible_window_expected"])
             with self.assertRaises(app.ApiError) as ctx:
-                backend.send_copilot_console_input({"text": "must-not-queue"})
+                backend.send_ai_console_input({"text": "must-not-queue"})
             self.assertEqual(ctx.exception.status_code, 409)
             self.assertEqual([], list(queue_dir.glob("*.json")))
         finally:
@@ -432,25 +432,25 @@ class BackendSmokeTests(unittest.TestCase):
                 self.assertEqual(input_job["status"], "running")
                 self.assertEqual(input_job["dispatch"]["response"]["status"], "queued")
 
-                status, console = local_request("GET", "/api/copilot/console")
+                status, console = local_request("GET", "/api/ai-console")
                 self.assertEqual(status, 200)
                 self.assertEqual(console["status"], "running")
 
-                status, console_input = local_request("POST", "/api/copilot/input", {"text": "frontend console smoke"})
+                status, console_input = local_request("POST", "/api/ai-console/input", {"text": "frontend ai-console smoke"})
                 self.assertEqual(status, 202)
                 self.assertTrue(console_input["accepted"])
                 self.assertEqual(console_input["target"], "host-runner")
                 input_calls = [call for call in calls if call["method"] == "POST" and call["path"] == "/copilot/input"]
                 self.assertTrue(input_calls)
-                self.assertEqual(input_calls[-1]["body"]["text"], "frontend console smoke")
+                self.assertEqual(input_calls[-1]["body"]["text"], "frontend ai-console smoke")
                 self.assertTrue(input_calls[-1]["body"]["clear_line"])
                 self.assertIn("trace_id", input_calls[-1]["body"])
                 self.assertIn("backend_accepted_at", input_calls[-1]["body"])
 
-                status, esc_input = local_request("POST", "/api/copilot/input", {"text": "\u001b", "submit": False, "clear_line": False})
+                status, esc_input = local_request("POST", "/api/ai-console/input", {"text": "\u001b", "submit": False, "clear_line": False})
                 self.assertEqual(status, 202)
                 self.assertTrue(esc_input["accepted"])
-                self.assertEqual(input_calls[-1]["body"]["text"], "frontend console smoke")
+                self.assertEqual(input_calls[-1]["body"]["text"], "frontend ai-console smoke")
                 input_calls = [call for call in calls if call["method"] == "POST" and call["path"] == "/copilot/input"]
                 self.assertEqual(input_calls[-1]["body"]["text"], "\u001b")
                 self.assertFalse(input_calls[-1]["body"]["submit"])

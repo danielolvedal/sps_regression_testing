@@ -269,27 +269,27 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
   q("copilot-window-visible-toggle").dispatchEvent(new Event("change", { bubbles: true }));
   assert(q("copilot-window-visible-toggle").checked, "Copilot window visibility toggle should switch back to visible mode.");
 
-  q("nav-copilot").click();
-  await waitFor(() => q("view-copilot").classList.contains("active"), "Copilot console view did not open.");
-  await waitFor(() => q("copilot-console-output").textContent.includes("Browser E2E Copilot session is running."), "Copilot console should show transcript output.");
-  assert(getComputedStyle(q("copilot-console-output")).whiteSpace === "normal", "Copilot console should render semantic Copilot blocks rather than a raw terminal dump.");
-  assert(q("copilot-console-output").querySelector(".copilot-line"), "Copilot console should render transcript lines as styled blocks.");
-  assert(q("copilot-console-status").textContent.includes("running"), "Copilot console should show running status.");
-  assert(q("copilot-console-status").className.includes("semantic-green"), "Running Copilot status should be a green verified badge.");
+  q("nav-ai-console").click();
+  await waitFor(() => q("view-ai-console").classList.contains("active"), "AI console view did not open.");
+  await waitFor(() => q("ai-console-output").textContent.includes("Browser E2E Copilot session is running."), "AI console should show transcript output.");
+  assert(getComputedStyle(q("ai-console-output")).whiteSpace === "normal", "AI console should render semantic Copilot blocks rather than a raw terminal dump.");
+  assert(q("ai-console-output").querySelector(".copilot-line"), "AI console should render transcript lines as styled blocks.");
+  assert(q("ai-console-status").textContent.includes("running"), "AI console should show running status.");
+  assert(q("ai-console-status").className.includes("semantic-green"), "Running Copilot status should be a green verified badge.");
   assert(q("copilot-window-mode").className.includes("semantic-green"), "Visible Copilot engine badge should be green only when running state confirms it.");
-  assert(q("copilot-console-model").textContent.includes("ej verifierad"), "Copilot model badge should not claim gpt-5-mini until verified.");
-  assert(!q("copilot-console-model").className.includes("semantic-green"), "Unverified Copilot model badge must not be green.");
-  assert(q("copilot-console-permissions").textContent.includes("ej verifierad"), "Copilot permissions badge should be explicit when not verified.");
-  assert(!q("copilot-console-permissions").className.includes("semantic-green"), "Unverified permissions badge must not be green.");
-  assert(q("copilot-console-input").placeholder === "Skriv din prompt här", "Copilot input placeholder should be user-facing.");
-  assert(!document.body.textContent.includes("Ingen fokuskonflikt"), "Copilot console should not show developer-only focus comments.");
+  assert(q("ai-console-model").textContent.includes("ej verifierad"), "Copilot model badge should not claim gpt-5-mini until verified.");
+  assert(!q("ai-console-model").className.includes("semantic-green"), "Unverified Copilot model badge must not be green.");
+  assert(q("ai-console-permissions").textContent.includes("ej verifierad"), "Copilot permissions badge should be explicit when not verified.");
+  assert(!q("ai-console-permissions").className.includes("semantic-green"), "Unverified permissions badge must not be green.");
+  assert(q("ai-console-input").placeholder === "Skriv din prompt här", "AI input placeholder should be user-facing.");
+  assert(!document.body.textContent.includes("Ingen fokuskonflikt"), "AI console should not show developer-only focus comments.");
   await fetch("/api/test/inject-host-state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ copilot_state: { status: "not_running", running: false, user_input_required: false, last_output_tail: "" } })
   });
-  await waitFor(() => q("copilot-console-output").textContent.includes("Disconnected - please wait until Copilot is online"), "Disconnected Copilot console should show explicit empty state.");
-  assert(q("copilot-console-output").querySelector(".disconnected"), "Disconnected empty state should have dedicated styling.");
+  await waitFor(() => q("ai-console-output").textContent.includes("Disconnected - please wait until Copilot is online"), "Disconnected AI console should show explicit empty state.");
+  assert(q("ai-console-output").querySelector(".disconnected"), "Disconnected empty state should have dedicated styling.");
   await fetch("/api/test/inject-host-state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -305,20 +305,20 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
       }
     })
   });
-  await waitFor(() => q("copilot-console-output").textContent.includes("Browser E2E Copilot session is running."), "Copilot console should reconnect to transcript output.");
-  q("copilot-console-input").value = "browser e2e console input";
-  q("copilot-console-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  await waitFor(() => q("copilot-console-input").value === "", "Copilot console input should clear after queued send.");
+  await waitFor(() => q("ai-console-output").textContent.includes("Browser E2E Copilot session is running."), "AI console should reconnect to transcript output.");
+  q("ai-console-input").value = "browser e2e console input";
+  q("ai-console-input").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await waitFor(() => q("ai-console-input").value === "", "AI console input should clear after queued send.");
   await waitFor(async () => {
-    const consoleState = await fetch("/api/copilot/console").then((r) => r.json());
+    const consoleState = await fetch("/api/ai-console").then((r) => r.json());
     return consoleState.input_queue && consoleState.input_queue.pending >= 1;
-  }, "Copilot console input was not queued through backend.");
-  q("copilot-console-send-esc").click();
-  q("copilot-console-send-tab").click();
+  }, "AI console input was not queued through backend.");
+  q("ai-console-send-esc").click();
+  q("ai-console-send-tab").click();
   await waitFor(async () => {
-    const consoleState = await fetch("/api/copilot/console").then((r) => r.json());
+    const consoleState = await fetch("/api/ai-console").then((r) => r.json());
     return consoleState.input_queue && consoleState.input_queue.pending >= 3;
-  }, "Copilot console special keys should be queued through backend.");
+  }, "AI console special keys should be queued through backend.");
   await fetch("/api/test/inject-host-state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -330,19 +330,19 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
         input_queue: { pending: 0 },
         user_input_required: true,
         user_input_reason: "confirmation_prompt",
-        last_output_tail: "Browser E2E transcript updated after frontend console input.\n$ErrorActionPreference='Stop'; $targets = Invoke-WebRequest -UseBasicParsing '' -Ti…\n╭────╮\n│ Run safe host-runner smoke tests │\n│ Do you want to run this command? │\n│ ❯ 1. Yes │\n│ ↑/↓ to navigate · enter to select · esc to cancel │\n╰────╯5s6\b7\b8\b910\b1\b2\b3\b4\b5\b6\b7\b8\b9 2m 0\b1\b2  Current Pull requests"
+        last_output_tail: "Browser E2E transcript updated after AI console input.\n$ErrorActionPreference='Stop'; $targets = Invoke-WebRequest -UseBasicParsing '' -Ti…\n╭────╮\n│ Run safe host-runner smoke tests │\n│ Do you want to run this command? │\n│ ❯ 1. Yes │\n│ ↑/↓ to navigate · enter to select · esc to cancel │\n╰────╯5s6\b7\b8\b910\b1\b2\b3\b4\b5\b6\b7\b8\b9 2m 0\b1\b2  Current Pull requests"
       }
     })
   });
-  await waitFor(() => q("copilot-console-output").textContent.includes("transcript updated"), "Copilot console should refresh transcript output.");
-  assert(q("copilot-console-output").textContent.includes("Current Pull requests"), "Copilot console should preserve real content after timer redraw artifacts.");
-  assert(!q("copilot-console-output").textContent.includes("192939") && !q("copilot-console-output").textContent.includes("5s6"), "Copilot console should suppress timer redraw artifact lines.");
-  assert(!q("copilot-console-output").textContent.includes("\b"), "Copilot console should not show raw terminal backspace characters.");
-  assert(!q("copilot-console-output").textContent.includes("╭") && !q("copilot-console-output").textContent.includes("│"), "Copilot console should not show raw TUI box drawing characters.");
-  assert(q("copilot-console-output").querySelector(".command-truncated-label"), "Copilot console should label PTY-truncated command summaries.");
-  assert(q("copilot-console-output").querySelector(".command-title"), "Copilot command prompt should render as a command card title.");
-  assert(q("copilot-console-output").querySelector(".selected-option"), "Copilot selected option should render with highlight styling.");
-  assert(q("copilot-console-hint").textContent === "Copilot väntar på input.", "Copilot console hint should be concise and user-facing.");
+  await waitFor(() => q("ai-console-output").textContent.includes("transcript updated"), "AI console should refresh transcript output.");
+  assert(q("ai-console-output").textContent.includes("Current Pull requests"), "AI console should preserve real content after timer redraw artifacts.");
+  assert(!q("ai-console-output").textContent.includes("192939") && !q("ai-console-output").textContent.includes("5s6"), "AI console should suppress timer redraw artifact lines.");
+  assert(!q("ai-console-output").textContent.includes("\b"), "AI console should not show raw terminal backspace characters.");
+  assert(!q("ai-console-output").textContent.includes("╭") && !q("ai-console-output").textContent.includes("│"), "AI console should not show raw TUI box drawing characters.");
+  assert(q("ai-console-output").querySelector(".command-truncated-label"), "AI console should label PTY-truncated command summaries.");
+  assert(q("ai-console-output").querySelector(".command-title"), "Copilot command prompt should render as a command card title.");
+  assert(q("ai-console-output").querySelector(".selected-option"), "Copilot selected option should render with highlight styling.");
+  assert(q("ai-console-hint").textContent === "Copilot väntar på input.", "AI console hint should be concise and user-facing.");
 
   q("nav-dashboard").click();
   q("testing-mode-button").click();
@@ -412,7 +412,7 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
 
   q("nav-loggar").click();
   const frontendLog = q("frontend-log").textContent;
-  for (const event of ["page_view", "button_clicked", "mode_changed", "copilot_console_refreshed", "copilot_console_input_sent", "job_created", "job_opened", "report_opened", "mermaid_zoom_changed", "mermaid_pan_changed", "mermaid_scroll_changed", "mermaid_search_changed"]) {
+  for (const event of ["page_view", "button_clicked", "mode_changed", "ai_console_refreshed", "ai_console_input_sent", "job_created", "job_opened", "report_opened", "mermaid_zoom_changed", "mermaid_pan_changed", "mermaid_scroll_changed", "mermaid_search_changed"]) {
     assert(frontendLog.includes(`"event":"${event}"`), `Frontend log should contain ${event}.`);
   }
   return { failures, logLines: frontendLog.split("\n").filter(Boolean).length };

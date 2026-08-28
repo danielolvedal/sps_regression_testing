@@ -71,12 +71,12 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         js = (FRONTEND_DIR / "app.js").read_text(encoding="utf-8")
         for hook in [
             'data-testid="start-session-button"',
-            'data-testid="view-copilot"',
-            'data-testid="copilot-console-output"',
-            'data-testid="copilot-console-input"',
+            'data-testid="view-ai-console"',
+            'data-testid="ai-console-output"',
+            'data-testid="ai-console-input"',
             'data-testid="status-diode"',
-            'data-testid="copilot-console-project"',
-            'data-testid="copilot-console-ready"',
+            'data-testid="ai-console-project"',
+            'data-testid="ai-console-ready"',
             'data-testid="mermaid-viewport"',
             'data-testid="report-reader"',
             'data-testid="frontend-log"',
@@ -86,8 +86,8 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
             "/api/session/start",
             "/api/status",
             "/api/jobs",
-            "/api/copilot/console",
-            "/api/copilot/input",
+            "/api/ai-console",
+            "/api/ai-console/input",
             "/api/regression/mermaid",
             "/api/frontend/events",
         ]:
@@ -173,9 +173,9 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         self.assertIn("frontend", combined)
         self.assertIn("job_created", combined)
 
-    def test_copilot_console_contract_input_and_logs(self) -> None:
+    def test_ai_console_contract_input_and_logs(self) -> None:
         self.inject_running_host_state()
-        status, console = self.request("GET", "/api/copilot/console", trace_id="console-e2e")
+        status, console = self.request("GET", "/api/ai-console", trace_id="console-e2e")
         self.assertEqual(status, 200)
         self.assertEqual(console["status"], "running")
         self.assertIn("E2E injected Copilot session", console["transcript_tail"])
@@ -185,7 +185,7 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         self.assertFalse(console["permissions_verified"])
 
         started = time.perf_counter()
-        status, queued = self.request("POST", "/api/copilot/input", {"text": "console e2e input"}, trace_id="console-e2e")
+        status, queued = self.request("POST", "/api/ai-console/input", {"text": "console e2e input"}, trace_id="console-e2e")
         elapsed = time.perf_counter() - started
         self.assertEqual(status, 202)
         self.assertLess(elapsed, 0.5, "console input API must enqueue within 500 ms")
@@ -200,7 +200,7 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         self.assertTrue(log_files)
         combined = "\n".join(path.read_text(encoding="utf-8") for path in log_files)
         self.assertIn("console-e2e", combined)
-        self.assertIn("copilot_console_input_sent", combined)
+        self.assertIn("ai_console_input_sent", combined)
 
 
 if __name__ == "__main__":

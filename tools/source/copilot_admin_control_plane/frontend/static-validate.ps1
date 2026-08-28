@@ -12,19 +12,19 @@ $RequiredTestIds = @(
     "view-dashboard",
     "dashboard-cards",
     "copilot-window-visible-toggle",
-    "nav-copilot",
-    "view-copilot",
-    "copilot-console",
-    "copilot-console-output",
-    "copilot-console-input",
-    "copilot-console-send",
-    "copilot-console-send-esc",
-    "copilot-console-send-tab",
+    "nav-ai-console",
+    "view-ai-console",
+    "ai-console",
+    "ai-console-output",
+    "ai-console-input",
+    "ai-console-send",
+    "ai-console-send-esc",
+    "ai-console-send-tab",
     "copilot-start-session-button",
-    "copilot-console-status",
+    "ai-console-status",
     "copilot-window-mode",
-    "copilot-console-model",
-    "copilot-console-permissions",
+    "ai-console-model",
+    "ai-console-permissions",
     "learning-mode-button",
     "testing-mode-button",
     "view-regressioner",
@@ -56,8 +56,8 @@ $RequiredEvents = @(
     "api_request_failed",
     "button_clicked",
     "mode_changed",
-    "copilot_console_refreshed",
-    "copilot_console_input_sent",
+    "ai_console_refreshed",
+    "ai_console_input_sent",
     "job_created",
     "job_opened",
     "report_opened",
@@ -73,9 +73,9 @@ $RequiredEndpoints = @(
     "/api/session/start",
     "/api/session/copilot",
     "/api/session/browser",
-    "/api/copilot/console",
-    "/api/copilot/console/events",
-    "/api/copilot/input",
+    "/api/ai-console",
+    "/api/ai-console/events",
+    "/api/ai-console/input",
     "/api/regression/tests",
     "/api/regression/mermaid",
     "/api/copilot/mode",
@@ -105,22 +105,22 @@ if (-not $Js.Contains("hidden_window")) {
     $Failures.Add("Missing Copilot window visibility payload.")
 }
 if (-not $Js.Contains("clear_line")) {
-    $Failures.Add("Missing Copilot console clear-line payload.")
+    $Failures.Add("Missing AI console clear-line payload.")
 }
 if (-not $Js.Contains("Disconnected - please wait until Copilot is online")) {
-    $Failures.Add("Missing disconnected Copilot console empty state.")
+    $Failures.Add("Missing disconnected AI console empty state.")
 }
 if (-not $Js.Contains("setSemanticBadge")) {
-    $Failures.Add("Missing semantic Copilot badge renderer.")
+    $Failures.Add("Missing semantic AI console badge renderer.")
 }
-if (-not $Js.Contains("new EventSource") -or -not $Js.Contains("connectCopilotConsoleEvents")) {
-    $Failures.Add("Missing Server-Sent Events integration for low-latency Copilot console output.")
+if (-not $Js.Contains("new EventSource") -or -not $Js.Contains("connectAiConsoleEvents")) {
+    $Failures.Add("Missing Server-Sent Events integration for low-latency AI console output.")
 }
 if (-not $Js.Contains("client_sent_at")) {
     $Failures.Add("Missing client-side input latency timestamp.")
 }
 
-foreach ($Phrase in @("status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "copilot-console-output", "copilot-console-form", "copilot-console-special-actions")) {
+foreach ($Phrase in @("status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "ai-console-output", "ai-console-form", "ai-console-special-actions")) {
     if (-not $Css.Contains($Phrase)) {
         $Failures.Add("Missing CSS affordance: $Phrase")
     }

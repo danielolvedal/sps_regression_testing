@@ -5,6 +5,7 @@ param(
     [int]$BrowserPort = 9322,
     [int]$TimeoutSeconds = 180,
     [switch]$RestartExisting,
+    [switch]$ShowTestCopilotWindow,
     [switch]$DryRun
 )
 
@@ -40,7 +41,9 @@ if ($DryRun) {
         isolated_runner_state_dir = $isolatedRunnerStateDir
         artifact_path = $artifactPath
         browser_port = $BrowserPort
-        would_start_visible_isolated_copilot = $true
+        would_start_hidden_isolated_copilot_helper = -not [bool]$ShowTestCopilotWindow
+        would_start_visible_isolated_copilot_test_session = [bool]$ShowTestCopilotWindow
+        would_keep_collaborative_browser_visible = $true
         would_use_isolated_runner_state = $true
     } | ConvertTo-Json -Depth 10
     exit 0
@@ -125,6 +128,7 @@ try {
     $env:COPILOT_ADMIN_REAL_E2E_BACKEND_URL = $backendUrl
     $env:COPILOT_ADMIN_REAL_E2E_ARTIFACT = $artifactPath
     $env:COPILOT_ADMIN_EXPECTED_PROJECT = 'SPS'
+    $env:COPILOT_ADMIN_REAL_E2E_SHOW_TEST_SESSION = if ($ShowTestCopilotWindow) { '1' } else { '0' }
 
     Push-Location $e2eDir
     try {
@@ -144,7 +148,9 @@ try {
         backend_url = $backendUrl
         host_runner_url = $hostRunnerUrl
         isolated_runner_state_dir = $isolatedRunnerStateDir
-        visible_copilot_session = $true
+        hidden_copilot_helper = -not [bool]$ShowTestCopilotWindow
+        visible_copilot_test_session = [bool]$ShowTestCopilotWindow
+        collaborative_browser_visible = $true
         browser_port = $BrowserPort
         artifact_path = $artifactPath
         timings_ms = $artifact.timings_ms
@@ -180,5 +186,6 @@ try {
     Remove-Item Env:\COPILOT_ADMIN_REAL_E2E_BACKEND_URL -ErrorAction SilentlyContinue
     Remove-Item Env:\COPILOT_ADMIN_REAL_E2E_ARTIFACT -ErrorAction SilentlyContinue
     Remove-Item Env:\COPILOT_ADMIN_EXPECTED_PROJECT -ErrorAction SilentlyContinue
+    Remove-Item Env:\COPILOT_ADMIN_REAL_E2E_SHOW_TEST_SESSION -ErrorAction SilentlyContinue
     Remove-Item Env:\COPILOT_ADMIN_SESSION_BROWSER_PORT -ErrorAction SilentlyContinue
 }

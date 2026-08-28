@@ -94,6 +94,7 @@ function stripAnsi(text) {
 
 function detectUserInputRequest(text) {
   const normalized = text.toLowerCase();
+  const permissionsConfirmed = hasPermissionConfirmation(normalized);
   const patterns = [
     {
       reason: 'directory_trust_prompt',
@@ -110,6 +111,9 @@ function detectUserInputRequest(text) {
   ];
 
   for (const item of patterns) {
+    if (item.reason === 'directory_trust_prompt' && permissionsConfirmed) {
+      continue;
+    }
     if (item.pattern.test(normalized)) {
       return {
         required: true,
@@ -122,6 +126,10 @@ function detectUserInputRequest(text) {
     required: false,
     reason: null,
   };
+}
+
+function hasPermissionConfirmation(text) {
+  return /all permissions are now enabled|tool, path, and url requests will be automatically approved/i.test(text);
 }
 
 function parseArgs(argv) {
@@ -270,11 +278,27 @@ async function runInteractiveCopilot(options = {}) {
   let trustAccepted = false;
   let trustAcceptanceSubmitted = false;
   let startupCommandsSent = false;
+  let startupModelRequested = options.startupModel ?? null;
+  let startupModel = options.startupModel ?? null;
+  let startupAllowAllRequested = Boolean(options.allowAll);
+  let startupAllowAll = Boolean(options.allowAll);
+  let allowAllVerified = false;
+  let permissionsHint = null;
+  let permissionsObservedAt = null;
+  let modelVerified = false;
+  let currentModel = null;
+  let directoryTrustRequested = Boolean(options.allowAll);
+  let directoryTrustVerified = false;
+  let directoryTrustObservedAt = null;
+  let startupPolicyState = null;
+  let lastInjectedAt = null;
+  let lastInjectedSubmit = null;
+  let lastInjectedClearLine = null;
 
   fs.mkdirSync(sessionInputQueueDir, { recursive: true });
 
   function writeSessionState(extra = {}) {
-    const recentOutput = plainOutput.slice(-1200);
+    const recentOutput = plainOutput.slice(-4000);
     const userInputRequest = detectUserInputRequest(recentOutput);
     fs.writeFileSync(
       sessionStatePath,
@@ -310,6 +334,23 @@ async function runInteractiveCopilot(options = {}) {
           last_input_job_id: lastInputJobId,
           last_input_tail: options.logInput ? inputText.slice(-1000) : null,
           last_injected_text: lastInjectedText,
+          last_injected_at: lastInjectedAt,
+          last_injected_submit: lastInjectedSubmit,
+          last_injected_clear_line: lastInjectedClearLine,
+          startup_model_requested: startupModelRequested,
+          startup_model: startupModel,
+          startup_allow_all_requested: startupAllowAllRequested,
+          startup_allow_all: startupAllowAll,
+          startup_commands_sent: startupCommandsSent,
+          allow_all_verified: allowAllVerified,
+          permissions_hint: permissionsHint,
+          permissions_observed_at: permissionsObservedAt,
+          model_verified: modelVerified,
+          current_model: currentModel,
+          directory_trust_requested: directoryTrustRequested,
+          directory_trust_verified: directoryTrustVerified,
+          directory_trust_observed_at: directoryTrustObservedAt,
+          startup_policy_state: startupPolicyState,
           note: 'node-pty owns stdin/stdout and mirrors output to this terminal. Type here to send input to Copilot.',
           ...extra,
         },
@@ -403,6 +444,17 @@ async function runInteractiveCopilot(options = {}) {
   });
   term.onData((data) => {
     plainOutput += stripAnsi(data);
+    const recentOutput = plainOutput.slice(-4000);
+    if (hasPermissionConfirmation(recentOutput)) {
+      directoryTrustRequested = true;
+      directoryTrustVerified = true;
+      directoryTrustObservedAt = directoryTrustObservedAt || utcStamp();
+      allowAllVerified = true;
+      permissionsHint = 'allow-all';
+      permissionsObservedAt = permissionsObservedAt || utcStamp();
+      startupPolicyState = 'directory_trust_accepted';
+      trustAccepted = true;
+    }
     fs.appendFileSync(sessionTranscriptPath, stripAnsi(data), 'utf8');
     lastOutputChunkAt = utcStamp();
     lastOutputChunkBytes = Buffer.byteLength(data, 'utf8');
@@ -458,11 +510,10 @@ async function runInteractiveCopilot(options = {}) {
         lastInputPtyWriteAt = ptyWriteAt;
         lastInputTraceId = request.trace_id ?? null;
         lastInputJobId = request.job_id ?? null;
-        writeSessionState({
-          last_injected_at: ptyWriteAt,
-          last_injected_submit: submit,
-          last_injected_clear_line: clearLine,
-        });
+        lastInjectedAt = ptyWriteAt;
+        lastInjectedSubmit = submit;
+        lastInjectedClearLine = clearLine;
+        writeSessionState();
         logEvent('node_pty_interactive_injection_sent', {
           file_path: filePath,
           byte_count: Buffer.byteLength(payload),
@@ -489,18 +540,32 @@ async function runInteractiveCopilot(options = {}) {
   const startupTimer = setInterval(() => {
     const recentOutput = plainOutput.slice(-4000);
     const userInputRequest = detectUserInputRequest(recentOutput);
+    if (hasPermissionConfirmation(recentOutput) && !trustAccepted) {
+      trustAccepted = true;
+      directoryTrustRequested = true;
+      directoryTrustVerified = true;
+      directoryTrustObservedAt = directoryTrustObservedAt || utcStamp();
+      allowAllVerified = true;
+      permissionsHint = 'allow-all';
+      permissionsObservedAt = permissionsObservedAt || utcStamp();
+      startupPolicyState = 'directory_trust_accepted';
+      writeSessionState();
+      logEvent('node_pty_startup_trust_accepted', { mode: 'permission_confirmation_output' });
+      return;
+    }
     if (userInputRequest.reason === 'directory_trust_prompt') {
       if (!trustAcceptanceSubmitted) {
         trustAcceptanceSubmitted = true;
+        directoryTrustRequested = true;
+        directoryTrustVerified = false;
+        startupPolicyState = 'directory_trust_submitted';
         term.write('\r');
         lastInjectedText = '<ENTER>';
+        lastInjectedAt = utcStamp();
+        lastInjectedSubmit = true;
+        lastInjectedClearLine = false;
         writeSessionState({
-          directory_trust_requested: true,
-          directory_trust_verified: false,
           startup_trust_action: 'accepted_session_default_enter',
-          startup_policy_state: 'directory_trust_submitted',
-          last_injected_at: utcStamp(),
-          last_injected_submit: true,
         });
         logEvent('node_pty_startup_trust_submitted', { mode: 'session_default_enter' });
       }
@@ -508,12 +573,11 @@ async function runInteractiveCopilot(options = {}) {
     }
     if (trustAcceptanceSubmitted && !trustAccepted) {
       trustAccepted = true;
-      writeSessionState({
-        directory_trust_requested: true,
-        directory_trust_verified: true,
-        directory_trust_observed_at: utcStamp(),
-        startup_policy_state: 'directory_trust_accepted',
-      });
+      directoryTrustRequested = true;
+      directoryTrustVerified = true;
+      directoryTrustObservedAt = utcStamp();
+      startupPolicyState = 'directory_trust_accepted';
+      writeSessionState();
       logEvent('node_pty_startup_trust_accepted', { mode: 'session_default_enter' });
     }
     if (startupCommandsSent || userInputRequest.required) {
@@ -533,26 +597,21 @@ async function runInteractiveCopilot(options = {}) {
     for (const commandText of startupCommands) {
       term.write(`${commandText}\r`);
       lastInjectedText = commandText;
+      lastInjectedAt = utcStamp();
+      lastInjectedSubmit = true;
+      lastInjectedClearLine = false;
       logEvent('node_pty_startup_command_sent', {
         command: commandText.startsWith('/model ') ? '/model <configured>' : commandText,
       });
     }
     startupCommandsSent = true;
-    writeSessionState({
-      startup_model_requested: options.startupModel ?? null,
-      startup_model: options.startupModel ?? null,
-      startup_allow_all_requested: Boolean(options.allowAll),
-      startup_allow_all: Boolean(options.allowAll),
-      startup_commands_sent: true,
-      allow_all_verified: Boolean(options.allowAll),
-      permissions_hint: options.allowAll ? 'allow-all' : null,
-      permissions_observed_at: options.allowAll ? utcStamp() : null,
-      model_verified: false,
-      current_model: null,
-      startup_policy_state: options.allowAll ? 'allow_all_sent' : 'startup_commands_sent',
-      last_injected_at: utcStamp(),
-      last_injected_submit: true,
-    });
+    allowAllVerified = Boolean(options.allowAll);
+    permissionsHint = options.allowAll ? 'allow-all' : null;
+    permissionsObservedAt = options.allowAll ? utcStamp() : null;
+    modelVerified = false;
+    currentModel = null;
+    startupPolicyState = options.allowAll ? 'allow_all_sent' : 'startup_commands_sent';
+    writeSessionState();
   }, 200);
   startupTimer.unref();
 }

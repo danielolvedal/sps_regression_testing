@@ -81,11 +81,11 @@ async function locatorTone(page, testId) {
 
 async function collectBadgeSnapshot(page) {
   const ids = [
-    'copilot-console-status',
+    'ai-console-status',
     'copilot-window-mode',
-    'copilot-console-permissions',
-    'copilot-console-project',
-    'copilot-console-ready',
+    'ai-console-permissions',
+    'ai-console-project',
+    'ai-console-ready',
   ];
   const result = {};
   for (const id of ids) {
@@ -102,6 +102,7 @@ async function main() {
   const runnerStateDir = process.env.COPILOT_ADMIN_RUNNER_STATE_DIR;
   const artifactPath = process.env.COPILOT_ADMIN_REAL_E2E_ARTIFACT || path.join(runnerStateDir || '.', 'real-visible-e2e-artifact.json');
   const expectedProject = (process.env.COPILOT_ADMIN_EXPECTED_PROJECT || 'SPS').toLowerCase();
+  const showTestCopilotWindow = process.env.COPILOT_ADMIN_REAL_E2E_SHOW_TEST_SESSION === '1';
   if (!runnerStateDir) {
     throw new Error('COPILOT_ADMIN_RUNNER_STATE_DIR is required.');
   }
@@ -109,6 +110,7 @@ async function main() {
   const sessionStatePath = path.join(runnerStateDir, 'node-pty-copilot-session.json');
   const executablePath = process.env.COPILOT_ADMIN_PLAYWRIGHT_BROWSER || findBrowserExecutable();
   let browser;
+  let page;
   const result = {
     status: 'failed',
     started_at: nowIso(),
@@ -124,14 +126,14 @@ async function main() {
       args: ['--disable-gpu', '--no-first-run', '--no-default-browser-check'],
     });
     const context = await browser.newContext();
-    const page = await context.newPage();
+    page = await context.newPage();
     let inputRequestBody = null;
     let inputRequestObservedAt = null;
     let inputResponseBody = null;
     let inputResponseObservedAt = null;
 
     page.on('request', (request) => {
-      if (request.method() !== 'POST' || !request.url().endsWith('/api/copilot/input')) {
+      if (request.method() !== 'POST' || !request.url().endsWith('/api/ai-console/input')) {
         return;
       }
       inputRequestObservedAt = nowIso();
@@ -142,7 +144,7 @@ async function main() {
       }
     });
     page.on('response', async (response) => {
-      if (response.request().method() !== 'POST' || !response.url().endsWith('/api/copilot/input')) {
+      if (response.request().method() !== 'POST' || !response.url().endsWith('/api/ai-console/input')) {
         return;
       }
       inputResponseObservedAt = nowIso();
@@ -154,52 +156,58 @@ async function main() {
     });
 
     await page.goto(`${backendUrl}/`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    if (showTestCopilotWindow) {
+      await page.locator('#copilot-window-visible-toggle').check();
+    } else {
+      await page.locator('#copilot-window-visible-toggle').uncheck();
+    }
     result.session_start = await requestJson(`${backendUrl}/api/session/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Trace-Id': 'real-visible-playwright-e2e' },
-      body: JSON.stringify({ hidden_window: false, restart_existing: false, skip_browser_start: true, startup_model: null }),
+      body: JSON.stringify({ hidden_window: !showTestCopilotWindow, restart_existing: true, skip_browser_start: true, startup_model: null }),
     });
-    await page.getByTestId('nav-copilot').click();
+    await page.getByTestId('nav-ai-console').click();
 
     await waitFor('Copilot status badge', async () => {
-      const text = await page.getByTestId('copilot-console-status').textContent();
-      const className = await locatorTone(page, 'copilot-console-status');
+      const text = await page.getByTestId('ai-console-status').textContent();
+      const className = await locatorTone(page, 'ai-console-status');
       return String(text).toLowerCase().includes('running') && className.includes('semantic-green');
     }, { timeoutMs: 180000, intervalMs: 250 });
-    await waitFor('visible engine badge', async () => {
+    await waitFor(showTestCopilotWindow ? 'visible engine badge' : 'hidden engine badge', async () => {
       const text = await page.getByTestId('copilot-window-mode').textContent();
       const className = await locatorTone(page, 'copilot-window-mode');
-      return String(text).toLowerCase().includes('synlig') && className.includes('semantic-green');
+      const expectedLabel = showTestCopilotWindow ? 'synlig' : 'osynlig';
+      return String(text).toLowerCase().includes(expectedLabel) && className.includes('semantic-green');
     }, { timeoutMs: 30000, intervalMs: 150 });
     await waitFor('permissions badge', async () => {
-      const text = await page.getByTestId('copilot-console-permissions').textContent();
-      const className = await locatorTone(page, 'copilot-console-permissions');
+      const text = await page.getByTestId('ai-console-permissions').textContent();
+      const className = await locatorTone(page, 'ai-console-permissions');
       return String(text).toLowerCase().includes('allow-all') && className.includes('semantic-green');
     }, { timeoutMs: 60000, intervalMs: 150 });
     await waitFor('project badge', async () => {
-      const text = await page.getByTestId('copilot-console-project').textContent();
-      const className = await locatorTone(page, 'copilot-console-project');
+      const text = await page.getByTestId('ai-console-project').textContent();
+      const className = await locatorTone(page, 'ai-console-project');
       return String(text).toLowerCase().includes(expectedProject) && className.includes('semantic-green');
     }, { timeoutMs: 30000, intervalMs: 150 });
     await waitFor('prompt readiness badge', async () => {
-      const text = await page.getByTestId('copilot-console-ready').textContent();
-      const className = await locatorTone(page, 'copilot-console-ready');
+      const text = await page.getByTestId('ai-console-ready').textContent();
+      const className = await locatorTone(page, 'ai-console-ready');
       return String(text).toLowerCase().includes('redo') && className.includes('semantic-green');
     }, { timeoutMs: 30000, intervalMs: 150 });
 
-    const baselineConsole = await requestJson(`${backendUrl}/api/copilot/console?limit=2048`);
+    const baselineConsole = await requestJson(`${backendUrl}/api/ai-console?limit=2048`);
     const baselineRunner = readJson(sessionStatePath);
-    const baselineRender = await page.evaluate(() => window.__copilotAdminLastConsoleRender || null);
+    const baselineRender = await page.evaluate(() => window.__copilotAdminLastAiConsoleRender || null);
     const promptToken = `real-latency-${Date.now().toString(36)}`;
     const promptText = `Svara exakt med texten latency-ok och inget annat. Spåra detta test med token ${promptToken}.`;
 
-    await page.getByTestId('copilot-console-input').fill(promptText);
+    await page.getByTestId('ai-console-input').fill(promptText);
     const clickSentAt = nowIso();
-    await page.getByTestId('copilot-console-send').click();
+    await page.getByTestId('ai-console-send').click();
     try {
       await waitFor('frontend input request', () => inputRequestObservedAt ? inputRequestObservedAt : null, { timeoutMs: 1500, intervalMs: 50 });
     } catch {
-      await page.evaluate(() => document.getElementById('copilot-console-form')?.requestSubmit());
+      await page.evaluate(() => document.getElementById('ai-console-form')?.requestSubmit());
     }
 
     const accepted = await waitFor('frontend input response', () => inputResponseBody && inputResponseBody.accepted ? inputResponseBody : null, { timeoutMs: 30000, intervalMs: 50 });
@@ -219,22 +227,32 @@ async function main() {
       return null;
     }, { timeoutMs: 120000, intervalMs: 50 });
 
-    const rendered = await waitFor('frontend console render', async () => {
-      const snapshot = await page.evaluate(() => window.__copilotAdminLastConsoleRender || null);
+    const rendered = await waitFor('AI console render', async () => {
+      const snapshot = await page.evaluate(() => window.__copilotAdminLastAiConsoleRender || null);
       if (!snapshot?.rendered_at || !snapshot?.streamed_at) {
         return null;
       }
       const baselineRenderedAt = baselineRender?.rendered_at ? Date.parse(baselineRender.rendered_at) : 0;
       const renderAt = Date.parse(snapshot.rendered_at);
-      const outputAt = Date.parse(runnerAfterOutput.last_output_chunk_at);
-      if (renderAt <= baselineRenderedAt || renderAt < outputAt) {
+      const snapshotOutputAt = Date.parse(snapshot.last_output_chunk_at || '');
+      const inputAt = Date.parse(runnerAfterInput.last_input_pty_write_at);
+      if (renderAt <= baselineRenderedAt) {
         return null;
       }
-      if ((snapshot.transcript_cursor ?? 0) < (baselineConsole.heartbeat?.next_cursor ?? 0)) {
+      if (Number.isFinite(snapshotOutputAt) && snapshotOutputAt < inputAt) {
+        return null;
+      }
+      const baselineCursor = Number(baselineRender?.transcript_cursor ?? baselineConsole.heartbeat?.next_cursor ?? 0);
+      const baselineLength = Number(baselineRender?.transcript_length ?? 0);
+      const nextCursor = Number(snapshot.transcript_cursor ?? 0);
+      const nextLength = Number(snapshot.transcript_length ?? 0);
+      if (nextCursor < baselineCursor && nextLength <= baselineLength) {
         return null;
       }
       return snapshot;
-    }, { timeoutMs: 15000, intervalMs: 50 });
+    }, { timeoutMs: 120000, intervalMs: 50 });
+
+    const visibleOutputAt = rendered.last_output_chunk_at || runnerAfterOutput.last_output_chunk_at;
 
     const badges = await collectBadgeSnapshot(page);
     const timings = {
@@ -245,14 +263,15 @@ async function main() {
       queue_write_to_queue_pickup_ms: diffMs(accepted.response?.input?.host_runner_queued_at, runnerAfterInput.last_input_queue_file_seen_at),
       queue_pickup_to_pty_write_ms: diffMs(runnerAfterInput.last_input_queue_file_seen_at, runnerAfterInput.last_input_pty_write_at),
       input_end_to_end_ms: diffMs(inputRequestBody?.client_sent_at, runnerAfterInput.last_input_pty_write_at),
-      cli_output_to_backend_stream_ms: diffMs(runnerAfterOutput.last_output_chunk_at, rendered.streamed_at),
+      cli_output_to_backend_stream_ms: diffMs(visibleOutputAt, rendered.streamed_at),
       backend_stream_to_frontend_render_ms: diffMs(rendered.streamed_at, rendered.rendered_at),
-      cli_output_to_frontend_ms: diffMs(runnerAfterOutput.last_output_chunk_at, rendered.rendered_at),
+      cli_output_to_frontend_ms: diffMs(visibleOutputAt, rendered.rendered_at),
       request_response_ms: diffMs(inputRequestObservedAt, inputResponseObservedAt),
     };
 
     result.status = 'passed';
     result.completed_at = nowIso();
+    result.show_test_copilot_window = showTestCopilotWindow;
     result.prompt = {
       token: promptToken,
       text: promptText,
@@ -279,6 +298,7 @@ async function main() {
       runner_state: {
         last_output_chunk_at: runnerAfterOutput.last_output_chunk_at,
         last_output_sequence: runnerAfterOutput.last_output_sequence,
+        visible_output_at: visibleOutputAt,
       },
       frontend_render: rendered,
     };
@@ -295,6 +315,21 @@ async function main() {
     result.status = 'failed';
     result.failed_at = nowIso();
     result.error = { message: error.message, stack: error.stack };
+    if (fs.existsSync(sessionStatePath)) {
+      result.failure_runner_state = readJson(sessionStatePath);
+    }
+    if (page) {
+      try {
+        result.failure_frontend = await page.evaluate(() => ({
+          last_render: window.__copilotAdminLastAiConsoleRender || null,
+          output_text: document.getElementById('ai-console-output')?.innerText || null,
+          hint_text: document.getElementById('ai-console-hint')?.textContent || null,
+          ready_badge: document.querySelector('[data-testid="ai-console-ready"]')?.textContent || null,
+          permissions_badge: document.querySelector('[data-testid="ai-console-permissions"]')?.textContent || null,
+        }));
+      } catch {
+      }
+    }
     writeJson(artifactPath, result);
     throw error;
   } finally {

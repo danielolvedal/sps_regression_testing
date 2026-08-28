@@ -26,7 +26,7 @@ Den gemensamma målbilden är att webbgränssnittet ska kunna initiera standardi
 - wrappern kan läsa användarinput och Copilot-output
 - backend/agent kan skicka input asynkront via en lokal inputkö
 - Copilot svarar i samma fönster
-- admin-frontend har en tvåpanels Copilot-konsol: read-only transcript/output och separat inputruta som skickar till samma `node-pty`-session
+- admin-frontend har en tvåpanels AI-konsolen-yta: read-only transcript/output och separat inputruta som skickar till samma `node-pty`-session
 - Copilot-motorns råa CLI-fönster är synligt som standard tills vidare, men frontend har en toggle som kan starta motorn dolt genom `hidden_window`
 - backend- och host-runner-helperprocesser ska köras dolt; de är inte användarytor
 - konsolens transcript hämtas med cursor-baserad polling och heartbeat-metadata, så långkörande sessioner kan följas utan att frontend läser om hela transcriptet
@@ -100,7 +100,7 @@ Den tänkta operatörsprocessen är:
 5. Användaren eller Copilot återanvänder den synliga samarbetsbrowsern; nya arbetsytor öppnas som flikar i samma fönster.
 6. Användaren startar Windows host runnern, eller låter host runnern starta node-pty-sessionen kontrollerat.
 7. Användaren startar Docker-control-plane och öppnar dess webbsida.
-8. Användaren använder webben för status, rapporter, Mermaid-graf, lägesval, Copilot-konsol och standardiserade asynkrona åtgärder.
+8. Användaren använder webben för status, rapporter, Mermaid-graf, lägesval, AI-konsolen och standardiserade asynkrona åtgärder.
 9. När användaren klickar på exempelvis `kör regressionstest` ska control plane skapa ett asynkront jobb som host runnern skickar till samma node-pty-ägda Copilot CLI-session.
 
 Copilot CLI-terminalen, den synliga browsern och web control plane är alltså tre samverkande ytor. Web control plane ska vara primär användaryta för Copilot-input/output; den råa Copilot CLI-terminalen finns kvar som teknisk motor och felsöknings-/insynsyta men ska normalt inte användas för manuell textinmatning.
@@ -113,7 +113,7 @@ Första Docker-baserade backend/frontend ska fokusera på fyra ytor:
 | --- | --- |
 | Mermaid | Visa renderad beroendegraf från `testing\regression_test\regression-test-dependencies.mmd`. |
 | Rapporter | Lista och öppna rapporter från `test_reports`, inklusive senaste körning och verifierade felrapporter. |
-| Copilot-konsol | Visa read-only Copilot-transcript, status, heartbeat och separat inputruta som skickar till samma `node-pty`-session. |
+| AI-konsolen | Visa read-only Copilot-transcript, status, heartbeat och separat inputruta som skickar till samma `node-pty`-session. |
 | Copilot-läge | Välja operativt läge: `learning mode` eller `testing mode`. |
 | Regressioner | Starta alla regressionstester eller ett valt test via asynkront Copilot-jobb. |
 

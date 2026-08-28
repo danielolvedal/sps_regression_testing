@@ -184,7 +184,7 @@ textarea {
 }
 .item h3 { margin: 0 0 0.35rem; }
 .item-actions { display: flex; gap: 0.5rem; margin-top: 0.8rem; flex-wrap: wrap; }
-.copilot-console {
+.ai-console {
   display: grid;
   gap: 0.9rem;
   margin-top: 1rem;
@@ -194,15 +194,15 @@ textarea {
   background: rgba(4, 12, 24, 0.82);
   box-shadow: var(--shadow);
 }
-.copilot-console-header {
+.ai-console-header {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: center;
   padding: 0.25rem 0.25rem 0.6rem;
 }
-.copilot-console-header strong { display: block; font-size: 1.25rem; }
-.copilot-console-output {
+.ai-console-header strong { display: block; font-size: 1.25rem; }
+.ai-console-output {
   min-height: 48vh;
   max-height: 58vh;
   margin: 0;
@@ -320,7 +320,7 @@ textarea {
   font-weight: 800;
   text-align: center;
 }
-.copilot-console-form {
+.ai-console-form {
   display: grid;
   gap: 0.55rem;
   padding: 1rem;
@@ -328,39 +328,39 @@ textarea {
   border-radius: 18px;
   background: rgba(43, 31, 78, 0.62);
 }
-.copilot-console-form label { color: #d8ccff; font-weight: 700; }
-.copilot-console-input-row {
+.ai-console-form label { color: #d8ccff; font-weight: 700; }
+.ai-console-input-row {
   display: grid;
   grid-template-columns: 1fr 130px;
   gap: 0.75rem;
   align-items: stretch;
 }
-.copilot-console-input-row button { min-height: 72px; }
-.copilot-console-send-busy,
-#copilot-console-send:disabled {
+.ai-console-input-row button { min-height: 72px; }
+.ai-console-send-busy,
+#ai-console-send:disabled {
   border-color: rgba(148, 163, 184, 0.25);
   background: #475569;
   color: #cbd5e1;
   cursor: wait;
   box-shadow: none;
 }
-.copilot-console-special-actions {
+.ai-console-special-actions {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-.copilot-console-special-actions button {
+.ai-console-special-actions button {
   padding: 0.45rem 0.75rem;
   border-radius: 10px;
   color: #dbeafe;
   background: rgba(15, 23, 42, 0.82);
 }
-.copilot-console-special-actions button:disabled {
+.ai-console-special-actions button:disabled {
   color: #94a3b8;
   background: #334155;
   cursor: wait;
 }
-.copilot-console-form small { color: var(--muted); }
+.ai-console-form small { color: var(--muted); }
 .mermaid-viewport {
   height: 64vh;
   margin-top: 1rem;
@@ -428,7 +428,7 @@ textarea {
   .sidebar { grid-row: 2; border-right: 0; border-bottom: 1px solid var(--border); }
   .sidebar nav { grid-template-columns: repeat(3, 1fr); }
   .cards, .split { grid-template-columns: 1fr; }
-  .copilot-console-header, .copilot-console-input-row { grid-template-columns: 1fr; flex-direction: column; align-items: stretch; }
+  .ai-console-header, .ai-console-input-row { grid-template-columns: 1fr; flex-direction: column; align-items: stretch; }
   .startup-actions { justify-items: stretch; }
   .topbar, .hero, .panel { align-items: stretch; flex-direction: column; }
 }

@@ -279,7 +279,21 @@ def stop_process(pid: Any, timeout_seconds: int = 30) -> bool:
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                f"Stop-Process -Id {process_id} -Force -ErrorAction SilentlyContinue",
+                rf"""
+$targets = [System.Collections.Generic.List[int]]::new()
+$visited = [System.Collections.Generic.HashSet[int]]::new()
+function Add-Descendants([int]$TargetPid) {{
+    if (-not $visited.Add($TargetPid)) {{ return }}
+    foreach ($child in @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $TargetPid" -ErrorAction SilentlyContinue)) {{
+        Add-Descendants([int]$child.ProcessId)
+    }}
+    $targets.Add($TargetPid)
+}}
+Add-Descendants -TargetPid {process_id}
+foreach ($targetPid in $targets) {{
+    Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue
+}}
+""",
             ],
             cwd=str(REPO_ROOT),
             capture_output=True,
@@ -508,12 +522,11 @@ def start_copilot_session(
             "startup_allow_all": bool(allow_all),
             "hidden": True,
             "visible_window_expected": False,
-            "note": "The node-pty-owned Copilot CLI session is running in a hidden helper process. Use the frontend Copilot console for input/output.",
+            "note": "The node-pty-owned Copilot CLI session is running in a hidden helper process. Use the frontend AI console for input/output.",
         }
     else:
         if restart_existing:
             args.append("-RestartExisting")
-        args.append("-Hidden:$false")
         result = run_powershell_script(NODE_PTY_START_WINDOW_SCRIPT, args, timeout_seconds=45, env=env)
         payload = json_from_stdout(result) or {}
     status = "started" if result["exit_code"] == 0 else "failed"
