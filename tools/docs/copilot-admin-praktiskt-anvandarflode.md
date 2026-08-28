@@ -65,6 +65,16 @@ Control plane ska då visa en lokal webbsida, exempelvis `http://localhost:<port
 | Synlig browser | Gemensam testyta där användaren kan logga in och Copilot kan observera/styra UI. |
 | Web control plane | Administrativ vy för status, rapporter, Mermaid-graf, loggar och standardiserade åtgärder. |
 
+### 7. Stoppa adminstacken säkert
+
+När den lokala adminstacken ska stängas ned används:
+
+```powershell
+.\stop_tool.ps1
+```
+
+Skriptet stoppar bara Copilot-sessioner och browserinstanser som verkligen kontrolleras av SPS-verktygen, samt tillhörande backend/webserver och host runner. För att göra detta säkert använder startvägarna ett gemensamt sessionsregister i `tmp\copilot_admin_control_plane\project-controlled-copilot-sessions.json`, och skriptet vägrar att döda andra Copilot-sessioner eller okända browser-/serverprocesser som inte matchar den förväntade adminstacken.
+
 ## Synlig localhost-browser för Copilot-admin
 
 När arbetet gäller själva Copilot-admin-webben på localhost ska den synliga browsern startas separat från stage-browsern:

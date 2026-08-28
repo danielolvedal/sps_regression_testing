@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { chromium } from 'playwright-core';
 
 function nowIso() {
@@ -21,6 +22,28 @@ function diffMs(start, end) {
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function readSessionState(dbPath, sessionId = 'node-pty-copilot') {
+  if (!fs.existsSync(dbPath)) {
+    return null;
+  }
+  const database = new DatabaseSync(dbPath);
+  try {
+    const row = database.prepare(`
+      SELECT payload_json
+      FROM session_state
+      WHERE session_id = ?
+    `).get(sessionId);
+    if (!row?.payload_json) {
+      return null;
+    }
+    return JSON.parse(row.payload_json);
+  } catch {
+    return null;
+  } finally {
+    database.close();
+  }
 }
 
 function writeJson(filePath, payload) {
@@ -107,7 +130,7 @@ async function main() {
     throw new Error('COPILOT_ADMIN_RUNNER_STATE_DIR is required.');
   }
 
-  const sessionStatePath = path.join(runnerStateDir, 'node-pty-copilot-session.json');
+  const sessionStatePath = path.join(runnerStateDir, 'copilot-admin-transport.sqlite');
   const executablePath = process.env.COPILOT_ADMIN_PLAYWRIGHT_BROWSER || findBrowserExecutable();
   let browser;
   let page;
@@ -196,7 +219,7 @@ async function main() {
     }, { timeoutMs: 30000, intervalMs: 150 });
 
     const baselineConsole = await requestJson(`${backendUrl}/api/ai-console?limit=2048`);
-    const baselineRunner = readJson(sessionStatePath);
+    const baselineRunner = readSessionState(sessionStatePath) || {};
     const baselineRender = await page.evaluate(() => window.__copilotAdminLastAiConsoleRender || null);
     const promptToken = `real-latency-${Date.now().toString(36)}`;
     const promptText = `Svara exakt med texten latency-ok och inget annat. Spåra detta test med token ${promptToken}.`;
@@ -213,12 +236,18 @@ async function main() {
     const accepted = await waitFor('frontend input response', () => inputResponseBody && inputResponseBody.accepted ? inputResponseBody : null, { timeoutMs: 30000, intervalMs: 50 });
     const jobId = accepted.job_id;
     const runnerAfterInput = await waitFor('PTY input write', () => {
-      const state = readJson(sessionStatePath);
+      const state = readSessionState(sessionStatePath);
+      if (!state) {
+        return null;
+      }
       return state.last_input_job_id === jobId && state.last_input_pty_write_at ? state : null;
     }, { timeoutMs: 30000, intervalMs: 50 });
 
     const runnerAfterOutput = await waitFor('CLI output change', () => {
-      const state = readJson(sessionStatePath);
+      const state = readSessionState(sessionStatePath);
+      if (!state) {
+        return null;
+      }
       const baselineSequence = Number(baselineRunner.last_output_sequence || 0);
       const currentSequence = Number(state.last_output_sequence || 0);
       if (state.last_output_chunk_at && currentSequence > baselineSequence && Date.parse(state.last_output_chunk_at) >= Date.parse(runnerAfterInput.last_input_pty_write_at)) {
@@ -316,7 +345,7 @@ async function main() {
     result.failed_at = nowIso();
     result.error = { message: error.message, stack: error.stack };
     if (fs.existsSync(sessionStatePath)) {
-      result.failure_runner_state = readJson(sessionStatePath);
+      result.failure_runner_state = readSessionState(sessionStatePath);
     }
     if (page) {
       try {

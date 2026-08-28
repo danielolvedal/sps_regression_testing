@@ -34,6 +34,8 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 ## Runtime och källkod för verktyg
 
 - `start_tool.ps1` - Enkel rot-entrypoint som startar Regression tool suite: host-runner API samt backend/frontend, men låter AI-konsolen starta Copilot vid behov om inte `-StartCopilotSession` används.
+- `restart_tool.ps1` - Enkel rot-entrypoint som först kör `stop_tool.ps1`, verifierar att stoppet lyckades utan blockerad status och startar därefter om tool suite via `start_tool.ps1`.
+- `stop_tool.ps1` - Enkel rot-entrypoint som säkert stänger SPS-kontrollerade adminsessioner och servrar: projektets Copilot-sessioner, ägda browserinstanser, backend/webserver och host-runner när de matchar förväntade processer.
 - `install_tool.ps1` - Enkel rot-entrypoint som kor pre-flight, installerar saknade beroenden och bara markerar installationen som klar nar `start_tool.ps1`-kraven ar uppfyllda.
 - `runtime\README.md` - Beskriver runtime-strukturen med stabila root-wrappers samt Windows- och Docker-underkataloger.
 - `runtime\install_tool.ps1` - Stabil root-wrapper som kor Windows-installern for `start_tool.ps1` med pre-flight forst.
@@ -98,6 +100,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\source\copilot_admin_runner\Invoke-TerminalInputAdapter.ps1` - Källkod för armerad terminal-input-adapter som loggar och testar om ett bridge-genererat kommando kan klistras in i aktiv Copilot CLI-terminal.
 - `tools\source\copilot_admin_runner\Start-OwnedCopilotSessionPoc.ps1` - Källkod för POC kring runner-startad synlig Copilot-session och redirectad stdio-probe.
 - `tools\source\copilot_admin_runner\Install-StartToolDependencies.ps1` - Install-logik som inventerar, rapporterar och atgardar beroenden sa att `start_tool.ps1` kan koras efter godkand pre-flight.
+- `tools\source\copilot_admin_runner\project_session_registry.py` - Gemensamt sessionsregister för SPS-kontrollerade Copilot-sessioner som används för säker identifiering och avstängning i start-/stopflöden.
 - `tools\source\copilot_admin_runner\owned_copilot_pty.py` - Python/ctypes-baserad Windows ConPTY-POC för runner-ägd pseudo-terminal utan externa beroenden.
 - `tools\source\copilot_admin_runner\node_pty_poc\package.json` - Node.js-beroendemanifest för robustare `node-pty`-baserad PTY-POC.
 - `tools\source\copilot_admin_runner\node_pty_poc\package-lock.json` - Låser installerade npm-beroenden för `node-pty`-baserad PTY-POC.

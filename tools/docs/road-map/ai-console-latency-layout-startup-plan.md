@@ -22,7 +22,7 @@ Tasks:
 
 1. Keep startup policy explicit in runner state: requested fields and verified fields must be separate.
 2. Automatically answer current-directory/session trust prompts when Copilot asks for workspace trust.
-3. Automatically send `/allow-all` once the session is ready for commands.
+3. Automatically send `/permissions allow-all` once the session is ready for commands.
 4. Do not send startup policy commands while Copilot is in Microsoft login, auth, or another user-critical prompt.
 5. Keep model badges unverified unless the active Copilot session confirms the current model.
 

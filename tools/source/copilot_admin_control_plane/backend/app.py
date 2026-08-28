@@ -19,6 +19,9 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, unquote, urlparse
 
+sys.path.insert(0, str((Path(__file__).resolve().parents[2] / "copilot_admin_runner").resolve()))
+from transport_db import enqueue_input, get_session_state, latest_trace_events, queue_snapshot, record_trace_event, transport_db_path, upsert_session_state
+
 
 REPO_ROOT = Path(os.environ.get("SPS_REPO_ROOT", Path(__file__).resolve().parents[4])).resolve()
 FRONTEND_DIR = Path(
@@ -36,6 +39,7 @@ NODE_PTY_STATE_DIR = Path(
 ).resolve()
 NODE_PTY_STATE_PATH = NODE_PTY_STATE_DIR / "node-pty-copilot-session.json"
 NODE_PTY_WINDOW_STATE_PATH = NODE_PTY_STATE_DIR / "node-pty-copilot-window.json"
+NODE_PTY_SESSION_ID = os.environ.get("COPILOT_ADMIN_RUNNER_SESSION_ID", "node-pty-copilot")
 STATE_DIR = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "state"
 LOG_DIR = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "logs"
 JOBS_PATH = STATE_DIR / "jobs.json"
@@ -45,7 +49,7 @@ BACKEND_VERSION = "0.1.0"
 DEFAULT_CONSOLE_TAIL_BYTES = 12000
 MAX_CONSOLE_DELTA_BYTES = 65536
 DEFAULT_HOST_RUNNER_URL = "http://127.0.0.1:8766"
-CONSOLE_EVENT_POLL_SECONDS = 0.05
+CONSOLE_EVENT_POLL_SECONDS = 0.03
 JOB_STATUSES = {
     "queued",
     "running",
@@ -55,6 +59,10 @@ JOB_STATUSES = {
     "failed",
 }
 ACTIVE_STATUSES = {"queued", "running", "user_input_required"}
+
+
+def current_transport_db_path() -> Path:
+    return transport_db_path(NODE_PTY_STATE_DIR)
 
 
 def host_runner_url() -> str | None:
@@ -106,6 +114,16 @@ def ensure_child(root: Path, candidate: Path) -> Path:
     return resolved_candidate
 
 
+def write_json_atomically(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_path.replace(path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 def split_markdown_row(line: str) -> list[str]:
     text = line.strip()
     if text.startswith("|"):
@@ -151,10 +169,17 @@ def path_for_report_id(report_id: str) -> Path:
 def read_json_file(path: Path, default: Any) -> Any:
     if not path.is_file():
         return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ApiError(500, f"Invalid JSON state file: {rel_path(path)}") from exc
+    attempts = 3
+    last_error: json.JSONDecodeError | None = None
+    for attempt in range(attempts):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            if attempt == attempts - 1:
+                raise ApiError(500, f"Invalid JSON state file: {rel_path(path)}") from exc
+            time.sleep(0.02)
+    raise ApiError(500, f"Invalid JSON state file: {rel_path(path)}") from last_error
 
 
 def read_optional_json_file(path: Path, default: Any) -> Any:
@@ -241,10 +266,7 @@ class ControlPlaneBackend:
         return data
 
     def _write_jobs(self, jobs: list[dict[str, Any]]) -> None:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_path = JOBS_PATH.with_suffix(".json.tmp")
-        tmp_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp_path.replace(JOBS_PATH)
+        write_json_atomically(JOBS_PATH, jobs)
 
     def parse_catalog(self) -> dict[str, Any]:
         entries: list[dict[str, Any]] = []
@@ -367,33 +389,31 @@ class ControlPlaneBackend:
         if isinstance(injected.get("copilot_state"), dict):
             state = dict(injected["copilot_state"])
             state["source"] = "injected"
-        elif not is_test_env(self.env) and NODE_PTY_STATE_PATH.is_file():
-            state = read_json_file(NODE_PTY_STATE_PATH, {})
+        elif not is_test_env(self.env) and (db_state := get_session_state(current_transport_db_path(), session_id=NODE_PTY_SESSION_ID)) is not None:
+            state = dict(db_state)
             if isinstance(state, dict):
-                state = dict(state)
-                window_state = read_optional_json_file(NODE_PTY_WINDOW_STATE_PATH, {})
-                if isinstance(window_state, dict):
-                    state.setdefault("visible_window_expected", bool(window_state.get("visible_window_expected", not bool(window_state.get("hidden")))))
-                    state.setdefault("startup_model", window_state.get("startup_model"))
-                    state.setdefault("startup_allow_all", bool(window_state.get("startup_allow_all")))
-                    state.setdefault("window_state_path", str(NODE_PTY_WINDOW_STATE_PATH))
                 wrapper_running = is_process_running(state.get("wrapper_pid"))
+                launcher_running = is_process_running(state.get("launcher_pid"))
                 state["running"] = wrapper_running
                 if state.get("status") in {"running", "user_input_required"} and not wrapper_running:
                     state["status"] = "not_running"
                     state["user_input_required"] = False
                     state["user_input_reason"] = None
-                if not wrapper_running:
+                if not wrapper_running and not launcher_running:
                     state["visible_window_expected"] = False
-                state["source"] = rel_path(NODE_PTY_STATE_PATH)
+                state.setdefault("state_storage", "sqlite")
+                state.setdefault("state_db_path", str(current_transport_db_path()))
+                state.setdefault("state_path", str(current_transport_db_path()))
+                state.setdefault("window_state_path", str(current_transport_db_path()))
+                state["source"] = str(current_transport_db_path())
             else:
-                state = {"status": "invalid", "source": rel_path(NODE_PTY_STATE_PATH)}
+                state = {"status": "invalid", "source": str(current_transport_db_path())}
         elif snapshot is not None or (snapshot := self.host_runner_status_snapshot()) is not None:
             state = dict(snapshot.get("copilot_session") or {})
             state.setdefault("status", "unknown")
             state["source"] = snapshot.get("source")
         else:
-            source = "test-isolated" if is_test_env(self.env) else rel_path(NODE_PTY_STATE_PATH)
+            source = "test-isolated" if is_test_env(self.env) else str(current_transport_db_path())
             state = {"status": "missing", "source": source, "user_input_required": False}
         transcript_path_value = state.get("transcript_path")
         if transcript_path_value and not state.get("last_output_tail"):
@@ -403,6 +423,8 @@ class ControlPlaneBackend:
                     state["last_output_tail"] = transcript_path.read_text(encoding="utf-8", errors="replace")[-4000:]
             except Exception:
                 state.setdefault("last_output_tail", "")
+        state.setdefault("input_queue_db_path", str(current_transport_db_path()))
+        state.setdefault("trace_db_path", str(current_transport_db_path()))
         return state
 
     def ai_console(self, snapshot: dict[str, Any] | None = None, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
@@ -429,13 +451,21 @@ class ControlPlaneBackend:
         permissions_hint = session.get("permissions_hint") or ("allow-all" if permissions_verified or permissions_allow_all_requested else None)
         command_ready = status == "running" and not bool(session.get("user_input_required")) and permissions_verified
         query = query or {}
+        include_trace = str((query.get("include_trace") or ["1"])[0]).strip().lower() not in {"0", "false", "no"}
         requested_cursor = self._int_query_value(query, "cursor")
         requested_limit = self._int_query_value(query, "limit") or DEFAULT_CONSOLE_TAIL_BYTES
         limit = max(1024, min(requested_limit, MAX_CONSOLE_DELTA_BYTES))
         transcript_payload = self.read_console_transcript(session, requested_cursor, limit)
         input_queue = session.get("input_queue") or {}
+        db_path_value = session.get("input_queue_db_path") or input_queue.get("db_path")
         queue_dir_value = session.get("input_queue_dir") or input_queue.get("queue_dir")
-        if queue_dir_value:
+        if db_path_value:
+            try:
+                db_path = ensure_child(self.repo_root, Path(db_path_value))
+                input_queue = {**input_queue, **queue_snapshot(db_path)}
+            except Exception:
+                input_queue = dict(input_queue)
+        elif queue_dir_value:
             try:
                 queue_dir = ensure_child(self.repo_root, Path(queue_dir_value))
                 if queue_dir.is_dir():
@@ -484,6 +514,9 @@ class ControlPlaneBackend:
             "last_output_sequence": session.get("last_output_sequence"),
             "last_output_transcript_size": session.get("last_output_transcript_size"),
             "input_queue": input_queue,
+            "input_queue_db_path": session.get("input_queue_db_path") or input_queue.get("db_path"),
+            "trace_db_path": session.get("trace_db_path") or str(current_transport_db_path()),
+            "recent_trace_events": latest_trace_events(current_transport_db_path(), limit=10, trace_id=session.get("last_input_trace_id")) if include_trace else [],
             "source": session.get("source"),
             "repo_root": repo_root,
             "project_name": project_name,
@@ -512,6 +545,7 @@ class ControlPlaneBackend:
     def read_console_transcript(self, session: dict[str, Any], cursor: int | None, limit: int) -> dict[str, Any]:
         transcript_path_value = session.get("transcript_path")
         fallback = str(session.get("last_output_tail") or "")
+        transcript_kind = str(session.get("transcript_kind") or "")
         if not transcript_path_value:
             encoded = fallback.encode("utf-8", errors="replace")
             return {
@@ -538,6 +572,28 @@ class ControlPlaneBackend:
             }
         if not transcript_path.is_file():
             return {"mode": "missing", "text": "", "cursor": cursor, "next_cursor": cursor or 0, "size": 0, "truncated": False, "source": str(transcript_path)}
+        if transcript_kind == "screen_snapshot":
+            text = transcript_path.read_text(encoding="utf-8", errors="replace")
+            encoded = text.encode("utf-8", errors="replace")
+            revision = int(session.get("last_output_sequence") or 0)
+            if cursor is None:
+                mode = "tail"
+                payload_text = text[-limit:]
+            elif cursor != revision:
+                mode = "reset_tail"
+                payload_text = text[-limit:]
+            else:
+                mode = "delta"
+                payload_text = ""
+            return {
+                "mode": mode,
+                "text": payload_text,
+                "cursor": cursor,
+                "next_cursor": revision,
+                "size": len(encoded),
+                "truncated": len(encoded) > limit,
+                "source": str(transcript_path),
+            }
         size = transcript_path.stat().st_size
         if cursor is None:
             start = max(0, size - limit)
@@ -686,20 +742,27 @@ class ControlPlaneBackend:
             if job["type"] == "session_start":
                 payload = dict(job["payload"])
                 payload.setdefault("restart_existing", False)
-                payload.setdefault("startup_model", "gpt-5-mini")
+                payload.setdefault("startup_model", "auto")
                 payload.setdefault("port", int(os.environ.get("COPILOT_ADMIN_SESSION_BROWSER_PORT", "9222")))
                 response = self.call_host_runner("POST", "/api/session/start", payload)
-                return {"dispatched": True, "target": "host-runner", "response": response}
+                dispatched = str(response.get("status") or "").lower() not in {"failed", "error", "blocked"}
+                reason = None
+                if not dispatched:
+                    reason = (
+                        response.get("error")
+                        or response.get("copilot", {}).get("stderr")
+                        or response.get("copilot", {}).get("status")
+                        or response.get("status")
+                    )
+                return {"dispatched": dispatched, "target": "host-runner", "response": response, "reason": reason}
             response = self.call_host_runner("POST", "/copilot/input", {"text": job["prompt"], "job_id": job["job_id"], "trace_id": job["trace_id"]})
             return {"dispatched": response.get("status") not in {"failed", "error"}, "target": "host-runner", "response": response}
 
         copilot = self.copilot_session()
+        db_path_value = copilot.get("input_queue_db_path") or str(current_transport_db_path())
         queue_dir_value = copilot.get("input_queue_dir")
-        if not queue_dir_value or copilot.get("status") not in {"running", "user_input_required"}:
+        if (not db_path_value and not queue_dir_value) or copilot.get("status") not in {"running", "user_input_required"}:
             return {"dispatched": False, "reason": "node-pty input queue is not available"}
-        queue_dir = ensure_child(self.repo_root, Path(queue_dir_value))
-        queue_dir.mkdir(parents=True, exist_ok=True)
-        request_path = queue_dir / f"{utc_now().replace(':', '').replace('-', '').replace('.', '')}-{job['job_id']}.json"
         request = {
             "text": job["prompt"],
             "submit": job["payload"].get("submit") is not False,
@@ -709,7 +772,26 @@ class ControlPlaneBackend:
             "client_sent_at": job["payload"].get("client_sent_at"),
             "backend_queued_at": job["payload"].get("backend_accepted_at") or utc_now(),
         }
-        request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
+        if db_path_value:
+            db_path = ensure_child(self.repo_root, Path(db_path_value))
+            queued = enqueue_input(
+                db_path,
+                source="backend-local",
+                text=request["text"],
+                display_text=request["text"],
+                clear_line=bool(request["clear_line"]),
+                submit=bool(request["submit"]),
+                job_id=job["job_id"],
+                trace_id=job["trace_id"],
+                client_sent_at=request["client_sent_at"],
+                backend_accepted_at=job["payload"].get("backend_accepted_at"),
+                backend_queued_at=request["backend_queued_at"],
+            )
+            return {"dispatched": True, "queue_db": str(db_path), "input_id": queued["input_id"]}
+        queue_dir = ensure_child(self.repo_root, Path(queue_dir_value))
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        request_path = queue_dir / f"{utc_now().replace(':', '').replace('-', '').replace('.', '')}-{job['job_id']}.json"
+        write_json_atomically(request_path, request)
         return {"dispatched": True, "queue_file": rel_path(request_path)}
 
     def send_ai_console_input(self, payload: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
@@ -731,6 +813,15 @@ class ControlPlaneBackend:
                 "backend_accepted_at": utc_now(),
             },
         }
+        record_trace_event(
+            current_transport_db_path(),
+            component="backend",
+            event="ai_console_input_accepted",
+            trace_id=request["trace_id"],
+            job_id=job_id,
+            status="accepted",
+            details={"submit": submit, "clear_line": request["payload"]["clear_line"]},
+        )
         if host_runner_url():
             response = self.call_host_runner("POST", "/copilot/input", {
                 "text": text,
@@ -748,6 +839,15 @@ class ControlPlaneBackend:
         if not result["accepted"]:
             raise ApiError(409, "AI console input could not be queued.", {"dispatch": result})
         self.log("info", "backend", "ai_console_input_sent", trace_id=request["trace_id"], job_id=job_id, status="queued", details={"submit": submit, "target": result["target"]})
+        record_trace_event(
+            current_transport_db_path(),
+            component="backend",
+            event="ai_console_input_dispatched",
+            trace_id=request["trace_id"],
+            job_id=job_id,
+            status="queued",
+            details={"target": result["target"], "response": result["response"]},
+        )
         result["accepted_at"] = request["payload"]["backend_accepted_at"]
         return result
 
@@ -839,6 +939,16 @@ class ControlPlaneBackend:
             details={"frontend": payload},
         )
         self.log("info", "backend", "frontend_event_received", trace_id=record["trace_id"], job_id=payload.get("job_id"), status=payload.get("status"))
+        if record["trace_id"]:
+            record_trace_event(
+                current_transport_db_path(),
+                component="frontend",
+                event=event,
+                trace_id=record["trace_id"],
+                job_id=payload.get("job_id"),
+                status=payload.get("status"),
+                details=payload,
+            )
         return {"accepted": True, "trace_id": record["trace_id"]}
 
     def assert_test_api_allowed(self) -> None:
@@ -944,7 +1054,7 @@ class Handler(BaseHTTPRequestHandler):
         limit = max(1024, min(requested_limit, MAX_CONSOLE_DELTA_BYTES))
         deadline = time.time() + float(os.environ.get("COPILOT_ADMIN_CONSOLE_EVENT_STREAM_SECONDS", "300"))
         last_heartbeat = 0.0
-        base_query = {"cursor": [str(cursor)], "limit": [str(limit)]} if cursor is not None else {"limit": [str(limit)]}
+        base_query = {"cursor": [str(cursor)], "limit": [str(limit)], "include_trace": ["0"]} if cursor is not None else {"limit": [str(limit)], "include_trace": ["0"]}
         base_console = self.app.ai_console(query=base_query)
         base_console["streamed_at"] = utc_now()
         last_console_signature = (
@@ -968,7 +1078,7 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(transcript.get("next_cursor"), int):
             cursor = transcript["next_cursor"]
         while time.time() < deadline:
-            current_query = {"cursor": [str(cursor)], "limit": [str(limit)]} if cursor is not None else {"limit": [str(limit)]}
+            current_query = {"cursor": [str(cursor)], "limit": [str(limit)], "include_trace": ["0"]} if cursor is not None else {"limit": [str(limit)], "include_trace": ["0"]}
             console = self.app.ai_console(query=current_query)
             transcript = console.get("transcript") or {}
             text = str(transcript.get("text") or "")

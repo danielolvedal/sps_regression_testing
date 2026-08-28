@@ -10,6 +10,7 @@
     "interactive-copilot": "node node_pty_poc.mjs interactive-copilot"
   },
   "dependencies": {
+    "@xterm/headless": "^5.5.0",
     "node-pty": "^1.0.0"
   }
 }

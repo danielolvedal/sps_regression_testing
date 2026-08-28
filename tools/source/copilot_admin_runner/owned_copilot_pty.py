@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from project_session_registry import mark_session_stopped, upsert_session
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LOG_DIR = REPO_ROOT / "tmp" / "copilot_admin_runner_logs"
@@ -373,6 +375,7 @@ def run_interactive(args: argparse.Namespace) -> int:
     session.start()
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     state_path = STATE_DIR / "owned-copilot-conpty-session.json"
+    session_key = f"owned-conpty::{state_path}"
     state_path.write_text(
         json.dumps(
             {
@@ -387,6 +390,17 @@ def run_interactive(args: argparse.Namespace) -> int:
             indent=2,
         ),
         encoding="utf-8",
+    )
+    upsert_session(
+        session_key,
+        kind="owned-conpty",
+        source="tools\\source\\copilot_admin_runner\\owned_copilot_pty.py",
+        status="running",
+        control_method="process-id",
+        state_path=str(state_path),
+        wrapper_pid=os.getpid(),
+        process_id=int(session.pi.dwProcessId),
+        note="interactive ConPTY Copilot POC",
     )
     log_event("interactive_started", {"command": command, "state_path": str(state_path)})
 
@@ -409,6 +423,7 @@ def run_interactive(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         log_event("interactive_keyboard_interrupt")
     finally:
+        mark_session_stopped(session_key)
         session.close()
     return 0
 

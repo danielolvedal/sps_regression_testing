@@ -10,6 +10,13 @@ const requiredTestIds = [
   "status-diode",
   "view-dashboard",
   "dashboard-cards",
+  "nav-manualer",
+  "view-manualer",
+  "manuals-hero",
+  "manuals-sections",
+  "manuals-section-csc",
+  "manuals-section-serviceportal",
+  "manuals-section-clients",
   "copilot-window-visible-toggle",
   "nav-ai-console",
   "view-ai-console",
@@ -70,8 +77,6 @@ const requiredEvents = [
 const requiredEndpoints = [
   "/api/status",
   "/api/session/start",
-  "/api/session/copilot",
-  "/api/session/browser",
   "/api/ai-console",
   "/api/ai-console/events",
   "/api/ai-console/input",
@@ -102,6 +107,9 @@ if (!js.includes("Disconnected - please wait until Copilot is online")) failures
 if (!js.includes("setSemanticBadge")) failures.push("Missing semantic AI console badge renderer.");
 for (const phrase of ["status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "ai-console-output", "ai-console-form", "ai-console-special-actions"]) {
   if (!css.includes(phrase)) failures.push(`Missing CSS affordance: ${phrase}`);
+}
+for (const phrase of ["manuals-grid", "manuals-card", "manuals-hero"]) {
+  if (!css.includes(phrase)) failures.push(`Missing Manualer CSS affordance: ${phrase}`);
 }
 if (!js.includes("setInterval(refreshStatusAndJobs, POLL_MS)")) {
   failures.push("Missing periodic status polling.");

@@ -4,7 +4,7 @@ param(
     [int]$BackendPort = 8765,
     [int]$HostRunnerPort = 8766,
     [int]$BrowserPort = 9222,
-    [string]$StartupModel = 'gpt-5-mini',
+    [string]$StartupModel = 'auto',
     [switch]$StartCopilotSession,
     [switch]$RestartExisting,
     [switch]$HideCopilotWindow,

@@ -18,7 +18,7 @@ Real Copilot E2E must use an isolated hidden Copilot engine session, not the pro
 | Frontend AI console | Passed in browser E2E: user input is entered in frontend, queued to the same node-pty session, and transcript/status/user-input-required state is shown without using the raw CLI as input surface. |
 | Copilot engine visibility control | Passed in browser E2E: the engine window is visible by default, and the frontend toggle sends `hidden_window=true` only when the user chooses hidden mode before session start. |
 | Real isolated control-plane E2E | Uses an isolated hidden Copilot engine session and separate runner state directory; the strict AI-console check verifies `/api/ai-console/input` through host-runner and the exact node-pty input file `.done` marker. |
-| Copilot startup policy | The runner automatically requests session-only directory trust approval and `/allow-all`; UI badges may turn green only from verified runner/backend state. Model state is explicitly unverified unless the active Copilot session confirms it. |
+| Copilot startup policy | The runner automatically requests session-only directory trust approval and `/permissions allow-all`; UI badges may turn green only from verified runner/backend state. Model state is explicitly unverified unless the active Copilot session confirms it. |
 | Browser singleton | Verified through debug-port reuse on port `9222`; real-E2E did not start a second browser when the existing session was running. |
 | Regression B | Passed in Regression Mode and produced `test_reports\20260827v1`. |
 | Regression G | Verified failed in Regression Mode after B; report created at `test_reports\20260827v1\RegressionError01\report.md`. |
@@ -89,7 +89,7 @@ Corrected acceptance rules:
 - reuse a running Copilot session unless a controlled restart is explicitly requested
 - reuse the first collaborative browser window and open additional work in tabs through the existing debug port
 - never run separate real-smoke startup and full real-E2E startup in the same sequence if they target the same visible session
-- apply Copilot startup policy once per new session: `/allow-all` and session-only folder trust approval when prompted; model badges must stay unverified unless the current model is actually observed from the session
+- apply Copilot startup policy once per new session: `/permissions allow-all` and session-only folder trust approval when prompted; model badges must stay unverified unless the current model is actually observed from the session
 
 Any future "passed" result for full real visible E2E is invalid unless it proves this singleton behavior.
 
@@ -107,5 +107,5 @@ Hard latency requirements:
 Startup-policy requirements:
 
 - If Copilot prompts for current-directory/session trust, the runner may automatically approve that current working directory for the active session. It must not silently grant permanent/global trust.
-- `/allow-all` must be requested automatically for a new controlled session, but the UI may show `Permissions: allow-all` as green only when runner/backend state says it was actually applied/sent for that session.
+- `/permissions allow-all` must be requested automatically for a new controlled session, but the UI may show `Permissions: allow-all` as green only when runner/backend state says it was actually applied/sent for that session.
 - Model state must remain `ej verifierad` unless the active Copilot session itself confirms the current model. A configured startup model, including `gpt-5-mini`, is only a request and must not turn the model badge green.

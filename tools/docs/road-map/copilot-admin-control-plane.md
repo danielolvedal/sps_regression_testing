@@ -24,7 +24,7 @@ Den gemensamma målbilden är att webbgränssnittet ska kunna initiera standardi
 - en synlig, gemensam Copilot CLI-session kan startas av runnern i ett eget fönster
 - användaren kan skriva i samma fönster
 - wrappern kan läsa användarinput och Copilot-output
-- backend/agent kan skicka input asynkront via en lokal inputkö
+- backend/agent kan skicka input asynkront via en lokal SQLite-baserad inputkö
 - Copilot svarar i samma fönster
 - admin-frontend har en tvåpanels AI-konsolen-yta: read-only transcript/output och separat inputruta som skickar till samma `node-pty`-session
 - Copilot-motorns råa CLI-fönster är synligt som standard tills vidare, men frontend har en toggle som kan starta motorn dolt genom `hidden_window`
@@ -32,16 +32,16 @@ Den gemensamma målbilden är att webbgränssnittet ska kunna initiera standardi
 - konsolens transcript hämtas med cursor-baserad polling och heartbeat-metadata, så långkörande sessioner kan följas utan att frontend läser om hela transcriptet
 - Copilot-frågor som katalogtrust eller inloggning kan detekteras som `user_input_required` i stället för att feltolkas som häng
 - real visible control-plane E2E har passerat med singleton-reuse: befintlig Copilot- och browser-session återanvändes utan att nya fönster öppnades
-- standardpolicy för ny Copilot-session är `gpt-5-mini`, `/allow-all` och session-only folder trust-godkännande när Copilot frågar
+- standardpolicy för ny Copilot-session är `gpt-5-mini`, `/permissions allow-all` och session-only folder trust-godkännande när Copilot frågar
 
 Kända POC-begränsningar som ska hanteras i implementationen:
 
 - sessionen måste startas genom node-pty-wrappern från början
 - ren restart kräver att tidigare wrapperprocess/fönster upptäcks, stängs och verifieras; normal start ska i första hand återanvända en fungerande host-runner-ägd session
 - inputloggning får bara användas som diagnostik eller med tydlig sekretesspolicy
-- inputköfiler måste skrivas som UTF-8 utan BOM; Node-wrapperns `JSON.parse` avvisar BOM-prefixed JSON och strict real-E2E ska fånga detta
+- inputkön och tidsstämplade trace-events ska ligga i en gemensam SQLite-store i runner-state-katalogen, med WAL och korta transaktioner för robust lokal IPC
 - output innehåller terminalsekvenser och behöver normaliseras för webben
-- jobbkön måste bli robustare än POC:ens enkla filkö
+- jobbkön får inte bygga på halvskrivna filer; SQLite är den primära transporten för input-ordering, ack/status och latency-spårning
 - browsern ska vara singleton: återanvänd första collaborative browser-fönstret och öppna nya flikar via debugporten för att undvika ny Microsoft-inloggning i nya Incognito/InPrivate-fönster
 
 ## Arkitekturprincip
@@ -96,7 +96,7 @@ Den tänkta operatörsprocessen är:
 1. Användaren öppnar SPS-repositoryt på Windows-värden.
 2. Host runnern återanvänder befintlig node-pty-ägd Copilot CLI-session, eller startar exakt en ny session om ingen körs.
 3. Användaren väljer i frontend om Copilot-motorfönstret ska vara synligt eller dolt; standard är synligt tills vidare.
-4. Host runnern sätter ny Copilot-session till `gpt-5-mini`, aktiverar `/allow-all` och godkänner aktuell katalogtrust för sessionen när Copilot frågar.
+4. Host runnern sätter ny Copilot-session till `gpt-5-mini`, aktiverar `/permissions allow-all` och godkänner aktuell katalogtrust för sessionen när Copilot frågar.
 5. Användaren eller Copilot återanvänder den synliga samarbetsbrowsern; nya arbetsytor öppnas som flikar i samma fönster.
 6. Användaren startar Windows host runnern, eller låter host runnern starta node-pty-sessionen kontrollerat.
 7. Användaren startar Docker-control-plane och öppnar dess webbsida.

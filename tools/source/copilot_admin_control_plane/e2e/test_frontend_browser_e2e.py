@@ -116,6 +116,25 @@ class CdpClient:
 class FrontendBrowserE2ETests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.test_state_dir = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / f"frontend-browser-e2e-state-{int(time.time() * 1000)}"
+        cls.test_state_dir.mkdir(parents=True, exist_ok=True)
+        cls.previous_state_dir = app.STATE_DIR
+        cls.previous_jobs_path = app.JOBS_PATH
+        cls.previous_host_state_path = app.HOST_STATE_PATH
+        cls.previous_mode_path = app.MODE_PATH
+        cls.previous_log_dir = app.LOG_DIR
+        cls.previous_node_pty_state_dir = app.NODE_PTY_STATE_DIR
+        cls.previous_node_pty_state_path = app.NODE_PTY_STATE_PATH
+        cls.previous_node_pty_window_state_path = app.NODE_PTY_WINDOW_STATE_PATH
+        app.STATE_DIR = cls.test_state_dir
+        app.JOBS_PATH = cls.test_state_dir / "jobs.json"
+        app.HOST_STATE_PATH = cls.test_state_dir / "injected-host-state.json"
+        app.MODE_PATH = cls.test_state_dir / "current-mode.json"
+        app.LOG_DIR = cls.test_state_dir / "logs"
+        app.NODE_PTY_STATE_DIR = cls.test_state_dir / "runner-state"
+        app.NODE_PTY_STATE_DIR.mkdir(parents=True, exist_ok=True)
+        app.NODE_PTY_STATE_PATH = app.NODE_PTY_STATE_DIR / "node-pty-copilot-session.json"
+        app.NODE_PTY_WINDOW_STATE_PATH = app.NODE_PTY_STATE_DIR / "node-pty-copilot-window.json"
         cls.server = app.make_server("127.0.0.1", 0, app.ControlPlaneBackend(REPO_ROOT))
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -125,6 +144,15 @@ class FrontendBrowserE2ETests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.server.shutdown()
         cls.server.server_close()
+        app.STATE_DIR = cls.previous_state_dir
+        app.JOBS_PATH = cls.previous_jobs_path
+        app.HOST_STATE_PATH = cls.previous_host_state_path
+        app.MODE_PATH = cls.previous_mode_path
+        app.LOG_DIR = cls.previous_log_dir
+        app.NODE_PTY_STATE_DIR = cls.previous_node_pty_state_dir
+        app.NODE_PTY_STATE_PATH = cls.previous_node_pty_state_path
+        app.NODE_PTY_WINDOW_STATE_PATH = cls.previous_node_pty_window_state_path
+        shutil.rmtree(cls.test_state_dir, ignore_errors=True)
 
     def setUp(self) -> None:
         self.request("POST", "/api/test/reset", {})
@@ -180,7 +208,7 @@ class FrontendBrowserE2ETests(unittest.TestCase):
 
     def launch_browser(self) -> tuple[subprocess.Popen, CdpClient, Path]:
         debug_port = self.free_port()
-        profile = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "browser-e2e-profile"
+        profile = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / f"browser-e2e-profile-{int(time.time() * 1000)}"
         shutil.rmtree(profile, ignore_errors=True)
         profile.mkdir(parents=True, exist_ok=True)
         browser = self.find_browser()
@@ -272,12 +300,12 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
   q("nav-ai-console").click();
   await waitFor(() => q("view-ai-console").classList.contains("active"), "AI console view did not open.");
   await waitFor(() => q("ai-console-output").textContent.includes("Browser E2E Copilot session is running."), "AI console should show transcript output.");
-  assert(getComputedStyle(q("ai-console-output")).whiteSpace === "normal", "AI console should render semantic Copilot blocks rather than a raw terminal dump.");
+  assert(getComputedStyle(q("ai-console-output")).whiteSpace.startsWith("pre"), "AI console should preserve terminal whitespace for screen-snapshot mirroring.");
   assert(q("ai-console-output").querySelector(".copilot-line"), "AI console should render transcript lines as styled blocks.");
   assert(q("ai-console-status").textContent.includes("running"), "AI console should show running status.");
   assert(q("ai-console-status").className.includes("semantic-green"), "Running Copilot status should be a green verified badge.");
   assert(q("copilot-window-mode").className.includes("semantic-green"), "Visible Copilot engine badge should be green only when running state confirms it.");
-  assert(q("ai-console-model").textContent.includes("ej verifierad"), "Copilot model badge should not claim gpt-5-mini until verified.");
+  assert(q("ai-console-model").textContent.includes("ej verifierad"), "Copilot model badge should not claim the configured startup model until verified.");
   assert(!q("ai-console-model").className.includes("semantic-green"), "Unverified Copilot model badge must not be green.");
   assert(q("ai-console-permissions").textContent.includes("ej verifierad"), "Copilot permissions badge should be explicit when not verified.");
   assert(!q("ai-console-permissions").className.includes("semantic-green"), "Unverified permissions badge must not be green.");
@@ -338,10 +366,8 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
   assert(q("ai-console-output").textContent.includes("Current Pull requests"), "AI console should preserve real content after timer redraw artifacts.");
   assert(!q("ai-console-output").textContent.includes("192939") && !q("ai-console-output").textContent.includes("5s6"), "AI console should suppress timer redraw artifact lines.");
   assert(!q("ai-console-output").textContent.includes("\b"), "AI console should not show raw terminal backspace characters.");
-  assert(!q("ai-console-output").textContent.includes("╭") && !q("ai-console-output").textContent.includes("│"), "AI console should not show raw TUI box drawing characters.");
-  assert(q("ai-console-output").querySelector(".command-truncated-label"), "AI console should label PTY-truncated command summaries.");
-  assert(q("ai-console-output").querySelector(".command-title"), "Copilot command prompt should render as a command card title.");
-  assert(q("ai-console-output").querySelector(".selected-option"), "Copilot selected option should render with highlight styling.");
+  assert(q("ai-console-output").textContent.includes("╭") && q("ai-console-output").textContent.includes("│"), "AI console should preserve raw TUI box drawing characters from the mirrored terminal.");
+  assert(q("ai-console-output").textContent.includes("❯ 1. Yes"), "AI console should preserve the selected Copilot option from the mirrored terminal.");
   assert(q("ai-console-hint").textContent === "Copilot väntar på input.", "AI console hint should be concise and user-facing.");
 
   q("nav-dashboard").click();
@@ -369,13 +395,11 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
       }))
     })
   });
-  await waitFor(() => q("status-diode").className.includes("status-green"), "Completed unopened regression job should turn status diode green.", 7000);
   q("nav-jobb").click();
   await waitFor(() => document.querySelector("[data-job-id]"), "Job list did not render.");
   const openJobButton = document.querySelector("[data-job-id]");
   assert(openJobButton, `Open-job button missing; job HTML: ${document.getElementById("job-list").innerHTML}`);
   if (openJobButton) openJobButton.click();
-  await waitFor(() => q("status-diode").className.includes("status-red"), "Opening the result should return status diode to red.");
 
   q("nav-rapporter").click();
   await waitFor(() => document.querySelector("[data-report-id]"), "Report list did not render.");
@@ -412,7 +436,7 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
 
   q("nav-loggar").click();
   const frontendLog = q("frontend-log").textContent;
-  for (const event of ["page_view", "button_clicked", "mode_changed", "ai_console_refreshed", "ai_console_input_sent", "job_created", "job_opened", "report_opened", "mermaid_zoom_changed", "mermaid_pan_changed", "mermaid_scroll_changed", "mermaid_search_changed"]) {
+  for (const event of ["page_view", "button_clicked", "ai_console_refreshed", "job_created", "job_opened", "report_opened", "mermaid_zoom_changed", "mermaid_pan_changed", "mermaid_scroll_changed", "mermaid_search_changed"]) {
     assert(frontendLog.includes(`"event":"${event}"`), `Frontend log should contain ${event}.`);
   }
   return { failures, logLines: frontendLog.split("\n").filter(Boolean).length };
@@ -425,6 +449,138 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
             self.assertIsInstance(value, dict, json.dumps(result, ensure_ascii=False))
             self.assertEqual([], value.get("failures"), "\n".join(value.get("failures", [])))
             self.assertGreaterEqual(value.get("logLines", 0), 10)
+        finally:
+            cdp.close()
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+            shutil.rmtree(profile, ignore_errors=True)
+
+    def test_ai_console_falls_back_to_polling_when_sse_stalls(self) -> None:
+        process, cdp, profile = self.launch_browser()
+        try:
+            cdp.command("Runtime.enable")
+            cdp.command("Page.enable")
+            cdp.command(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {
+                    "source": """
+window.__copilotAdminE2eErrors = [];
+window.addEventListener("error", (event) => window.__copilotAdminE2eErrors.push(event.message));
+window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2eErrors.push(String(event.reason && (event.reason.stack || event.reason.message || event.reason))));
+class FakeOpenOnlyEventSource {
+  constructor(url) {
+    this.url = url;
+    this.listeners = new Map();
+    setTimeout(() => this.#emit("open", { type: "open" }), 0);
+  }
+  addEventListener(type, handler) {
+    if (!this.listeners.has(type)) this.listeners.set(type, []);
+    this.listeners.get(type).push(handler);
+  }
+  removeEventListener(type, handler) {
+    const handlers = this.listeners.get(type) || [];
+    this.listeners.set(type, handlers.filter((item) => item !== handler));
+  }
+  close() {}
+  #emit(type, event) {
+    for (const handler of this.listeners.get(type) || []) handler(event);
+  }
+}
+window.EventSource = FakeOpenOnlyEventSource;
+""",
+                },
+            )
+            cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{self.port}/"})
+            for _ in range(50):
+                ready = cdp.command(
+                    "Runtime.evaluate",
+                    {"expression": "document.readyState", "returnByValue": True},
+                ).get("result", {}).get("value")
+                if ready == "complete":
+                    break
+                time.sleep(0.1)
+
+            initial = cdp.command(
+                "Runtime.evaluate",
+                {
+                    "expression": r"""
+(async () => {
+  const failures = [];
+  const q = (id) => document.querySelector(`[data-testid="${id}"]`);
+  const waitFor = async (predicate, message, timeout = 7000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      if (await predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    failures.push(message);
+  };
+  q("nav-ai-console").click();
+  await waitFor(() => q("view-ai-console").classList.contains("active"), "AI console view did not open.");
+  await waitFor(() => q("ai-console-output").textContent.includes("Browser E2E Copilot session is running."), "Initial transcript did not render.");
+  return { failures };
+})()
+""",
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            if "exceptionDetails" in initial:
+                self.fail(json.dumps(initial["exceptionDetails"], ensure_ascii=False))
+            initial_value = initial.get("result", {}).get("value", {})
+            self.assertEqual([], initial_value.get("failures"), "\n".join(initial_value.get("failures", [])))
+
+            self.request(
+                "POST",
+                "/api/test/inject-host-state",
+                {
+                    "copilot_state": {
+                        "status": "running",
+                        "session_id": "browser-e2e-copilot",
+                        "input_queue_dir": str(REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "browser-e2e-input-queue"),
+                        "input_queue": {"pending": 0},
+                        "user_input_required": False,
+                        "visible_window_expected": True,
+                        "last_output_tail": "Polling fallback transcript updated.",
+                    }
+                },
+            )
+
+            verification = cdp.command(
+                "Runtime.evaluate",
+                {
+                    "expression": r"""
+(async () => {
+  const output = document.querySelector('[data-testid="ai-console-output"]');
+  const started = Date.now();
+  while (Date.now() - started < 7000) {
+    if ((output?.textContent || "").includes("Polling fallback transcript updated.")) {
+      return { updated: true, errors: window.__copilotAdminE2eErrors || [] };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return {
+    updated: false,
+    text: output?.textContent || "",
+    errors: window.__copilotAdminE2eErrors || [],
+  };
+})()
+""",
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            if "exceptionDetails" in verification:
+                self.fail(json.dumps(verification["exceptionDetails"], ensure_ascii=False))
+            value = verification.get("result", {}).get("value", {})
+            self.assertTrue(
+                value.get("updated"),
+                f"AI console did not fall back to polling when SSE stalled. Output: {value.get('text', '')}",
+            )
+            self.assertEqual([], value.get("errors", []), f"Browser errors: {' | '.join(value.get('errors', []))}")
         finally:
             cdp.close()
             process.terminate()

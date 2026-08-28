@@ -5,8 +5,8 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..\..')
 $runner = Join-Path $repoRoot 'tools\source\copilot_admin_runner\copilot_admin_runner.py'
 
 $status = python $runner copilot-status | ConvertFrom-Json
-if (-not $status.state_path) {
-    throw 'copilot-status did not return a state_path.'
+if (-not ($status.state_db_path -or $status.state_path)) {
+    throw 'copilot-status did not return a SQLite-backed state path.'
 }
 if (-not $status.input_queue) {
     throw 'copilot-status did not return input_queue status.'

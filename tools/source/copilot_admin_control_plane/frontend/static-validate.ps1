@@ -11,6 +11,13 @@ $RequiredTestIds = @(
     "status-diode",
     "view-dashboard",
     "dashboard-cards",
+    "nav-manualer",
+    "view-manualer",
+    "manuals-hero",
+    "manuals-sections",
+    "manuals-section-csc",
+    "manuals-section-serviceportal",
+    "manuals-section-clients",
     "copilot-window-visible-toggle",
     "nav-ai-console",
     "view-ai-console",
@@ -71,8 +78,6 @@ $RequiredEvents = @(
 $RequiredEndpoints = @(
     "/api/status",
     "/api/session/start",
-    "/api/session/copilot",
-    "/api/session/browser",
     "/api/ai-console",
     "/api/ai-console/events",
     "/api/ai-console/input",
@@ -123,6 +128,11 @@ if (-not $Js.Contains("client_sent_at")) {
 foreach ($Phrase in @("status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "ai-console-output", "ai-console-form", "ai-console-special-actions")) {
     if (-not $Css.Contains($Phrase)) {
         $Failures.Add("Missing CSS affordance: $Phrase")
+    }
+}
+foreach ($Phrase in @("manuals-grid", "manuals-card", "manuals-hero")) {
+    if (-not $Css.Contains($Phrase)) {
+        $Failures.Add("Missing Manualer CSS affordance: $Phrase")
     }
 }
 if (-not $Js.Contains("setInterval(refreshStatusAndJobs, POLL_MS)")) {

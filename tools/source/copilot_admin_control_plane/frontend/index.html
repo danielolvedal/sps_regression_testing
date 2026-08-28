@@ -27,6 +27,7 @@
       <aside class="sidebar" data-testid="left-nav">
         <nav>
           <button class="nav-item active" data-view="dashboard" data-testid="nav-dashboard">Dashboard</button>
+          <button class="nav-item" data-view="manualer" data-testid="nav-manualer">Manualer</button>
           <button class="nav-item" data-view="ai-console" data-testid="nav-ai-console">AI-konsolen</button>
           <button class="nav-item" data-view="regressioner" data-testid="nav-regressioner">Regressioner</button>
           <button class="nav-item" data-view="mermaid" data-testid="nav-mermaid">Mermaid</button>
@@ -71,6 +72,48 @@
           </section>
         </section>
 
+        <section id="view-manualer" class="view" data-testid="view-manualer">
+          <div class="hero manuals-hero" data-testid="manuals-hero">
+            <div>
+              <p class="eyebrow">Kunskapsyta</p>
+              <h2>Manualer</h2>
+              <p>Startpunkten för SPS-manualer där användarstöd, guider och arbetsinstruktioner samlas i en strukturerad och lättnavigerad vy.</p>
+            </div>
+            <div class="manuals-hero-note">
+              <span class="pill">Kommande innehåll</span>
+              <p>Den här vyn förbereder frontend för ett samlat manualbibliotek utan att påverka Copilot-adminflödena.</p>
+            </div>
+          </div>
+          <section class="panel">
+            <div class="panel-header">
+              <h3>Planerade manualområden</h3>
+              <p>Börja här när SPS-manualer ska grupperas efter målgrupp, systemyta och arbetssätt.</p>
+            </div>
+          </section>
+          <div class="cards manuals-grid" data-testid="manuals-sections">
+            <article class="card manuals-card" data-testid="manuals-section-csc">
+              <span>Kundtjänst / CSC</span>
+              <strong>Operativt stöd</strong>
+              <small>Manualer för kundtjänstflöden, ärendehantering, kontrakt och vanliga arbetsmoment i CSC.</small>
+            </article>
+            <article class="card manuals-card" data-testid="manuals-section-serviceportal">
+              <span>Serviceportalen</span>
+              <strong>Portalguider</strong>
+              <small>Steg-för-steg-material för navigation, beställningar, självservice och rollspecifika arbetssätt i portalen.</small>
+            </article>
+            <article class="card manuals-card" data-testid="manuals-section-clients">
+              <span>Klientmanualer</span>
+              <strong>Användarstöd</strong>
+              <small>Samlad dokumentation för klientnära processer, användarresor och instruktioner riktade till slutanvändare.</small>
+            </article>
+            <article class="card manuals-card" data-testid="manuals-section-guides">
+              <span>Arbetsinstruktioner / Guider</span>
+              <strong>Återanvändbara checklistor</strong>
+              <small>Praktiska guider, onboardingstöd och standardiserade arbetsinstruktioner för återkommande SPS-uppgifter.</small>
+            </article>
+          </div>
+        </section>
+
         <section id="view-ai-console" class="view" data-testid="view-ai-console">
           <div class="panel-header">
             <h2>AI-konsolen</h2>
@@ -82,14 +125,22 @@
                 <span class="eyebrow">Read-only transcript</span>
                 <strong id="ai-console-title">Copilot CLI-output</strong>
               </div>
-              <div class="topbar-status">
-                <span id="ai-console-status" class="pill" data-testid="ai-console-status">Status: unknown</span>
-                <span id="copilot-window-mode" class="pill" data-testid="copilot-window-mode">Motor: synlig</span>
-                <span id="ai-console-model" class="pill" data-testid="ai-console-model">Modell: ej verifierad</span>
-                <span id="ai-console-permissions" class="pill" data-testid="ai-console-permissions">Permissions: ej verifierad</span>
-                <span id="ai-console-project" class="pill" data-testid="ai-console-project">Projekt: okänt</span>
-                <span id="ai-console-ready" class="pill" data-testid="ai-console-ready">Prompt: väntar</span>
-                <button id="copilot-start-session-button" data-testid="copilot-start-session-button" data-action="start-session" type="button">Starta Copilot CLI-session</button>
+              <div class="ai-console-status-board" data-testid="ai-console-status-board">
+                <span id="ai-console-status" class="console-status-tile semantic-gray" data-testid="ai-console-status">Status: unknown</span>
+                <span id="copilot-window-mode" class="console-status-tile semantic-gray" data-testid="copilot-window-mode">Motor: synlig</span>
+                <span id="ai-console-model" class="console-status-tile semantic-gray" data-testid="ai-console-model">Modell: ej verifierad</span>
+                <span id="ai-console-permissions" class="console-status-tile semantic-gray" data-testid="ai-console-permissions">Permissions: ej verifierad</span>
+                <span id="ai-console-project" class="console-status-tile semantic-gray" data-testid="ai-console-project">Projekt: okänt</span>
+                <span id="ai-console-ready" class="console-status-tile semantic-gray" data-testid="ai-console-ready">Prompt: väntar</span>
+                <button id="copilot-start-session-button" class="console-status-tile console-status-action" data-testid="copilot-start-session-button" data-action="start-session" type="button" aria-label="Starta Copilot CLI-session">
+                  <span class="console-status-action-icon" aria-hidden="true">
+                    <svg viewBox="0 0 48 48" focusable="false">
+                      <circle cx="24" cy="24" r="17"></circle>
+                      <path d="M21 16.8c0-1.3 1.5-2.1 2.6-1.4L33.9 22c1 .6 1 2.1 0 2.8l-10.3 6.6c-1.1.7-2.6-.1-2.6-1.4V16.8Z"></path>
+                    </svg>
+                  </span>
+                  <span class="console-status-action-label">Starta</span>
+                </button>
               </div>
             </div>
             <div id="ai-console-output" class="ai-console-output" data-testid="ai-console-output" role="log" aria-live="polite">Väntar på Copilot CLI-transkript...</div>

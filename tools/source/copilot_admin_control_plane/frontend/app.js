@@ -48,7 +48,52 @@ const state = {
   lastAiConsoleEventAt: null,
   lastAiConsoleInput: null,
   lastAiConsoleRender: null,
+  aiConsoleStartError: "",
   logs: [],
+};
+
+const CONSOLE_TILE_ICONS = {
+  status: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <path d="M24 10v12" />
+      <path d="M16.2 15.2a12.8 12.8 0 1 0 15.6 0" />
+    </svg>
+  `,
+  motor: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <rect x="16" y="16" width="16" height="16" rx="2.6" />
+      <rect x="21" y="21" width="6" height="6" rx="0.8" />
+      <path d="M19 11v4M24 11v4M29 11v4M19 33v4M24 33v4M29 33v4M11 19h4M11 24h4M11 29h4M33 19h4M33 24h4M33 29h4" />
+    </svg>
+  `,
+  model: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <path d="M19.5 14.5c-5 0-8.5 4.1-8.5 8.8 0 2.6 1 4.8 2.8 6.4.6.5.9 1.2.9 2v1c0 1.6 1.3 2.8 2.8 2.8h1.5v-5.2c0-1.4-1.1-2.5-2.5-2.5h-1.3" />
+      <path d="M28.5 14.5c5 0 8.5 4.1 8.5 8.8 0 2.6-1 4.8-2.8 6.4-.6.5-.9 1.2-.9 2v1c0 1.6-1.3 2.8-2.8 2.8H29v-5.2c0-1.4 1.1-2.5 2.5-2.5h1.3" />
+      <path d="M21 19.2c.8-1.5 1.9-2.4 3-2.4s2.2.9 3 2.4M21 28.8c.8 1.5 1.9 2.4 3 2.4s2.2-.9 3-2.4M20.2 24h7.6" />
+      <path d="M17 18.8h1.2M16.2 22.4h1.4M16.6 26h1.3M30.8 18.8H32M30.4 22.4h1.4M30.1 26h1.3" />
+    </svg>
+  `,
+  permissions: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <circle cx="17" cy="18" r="4.4" />
+      <circle cx="17" cy="18" r="1.2" />
+      <path d="M21.4 18h10.8" />
+      <path d="M28.8 18v3.7M32.2 18v2.7" />
+      <path d="M17 22.4v9.1" />
+    </svg>
+  `,
+  project: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <path d="M10.5 16.5a2.5 2.5 0 0 1 2.5-2.5h7.6l2.9 3H35a2.5 2.5 0 0 1 2.5 2.5v11a2.5 2.5 0 0 1-2.5 2.5H13a2.5 2.5 0 0 1-2.5-2.5v-14Z" />
+    </svg>
+  `,
+  prompt: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <path d="M13 14.5h22a2.5 2.5 0 0 1 2.5 2.5v11a2.5 2.5 0 0 1-2.5 2.5H20l-5.5 5v-5H13a2.5 2.5 0 0 1-2.5-2.5V17a2.5 2.5 0 0 1 2.5-2.5Z" />
+      <path d="M18 19.8h12M18 24.8h10" />
+    </svg>
+  `,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -202,12 +247,10 @@ async function refreshStatusAndJobs() {
     apiGet("/api/status", mockStatus),
     apiGet("/api/jobs", () => ({ jobs: state.jobs.length ? state.jobs : mockJobs() })),
   ];
-  if (!state.aiConsoleEventsConnected) {
-    const aiConsolePath = state.aiConsoleCursor === null
-      ? `/api/ai-console?limit=${CONSOLE_POLL_LIMIT}`
-      : `/api/ai-console?cursor=${state.aiConsoleCursor}&limit=${CONSOLE_POLL_LIMIT}`;
-    requests.push(apiGet(aiConsolePath, mockAiConsole));
-  }
+  const aiConsolePath = state.aiConsoleCursor === null
+    ? `/api/ai-console?limit=${CONSOLE_POLL_LIMIT}`
+    : `/api/ai-console?cursor=${state.aiConsoleCursor}&limit=${CONSOLE_POLL_LIMIT}`;
+  requests.push(apiGet(aiConsolePath, mockAiConsole));
   const [status, jobs, aiConsoleState] = await Promise.all(requests);
   const copilot = status?.copilot_session || status?.copilot || {};
   const browser = status?.browser_session || status?.browser || {};
@@ -219,7 +262,10 @@ async function refreshStatusAndJobs() {
     state.aiConsole = { ...state.aiConsole, ...copilot };
   }
   if (status?.mode) state.mode = status.mode;
-  if (isCopilotOnline(state.aiConsole || {})) state.aiConsoleStartInProgress = false;
+  if (isCopilotOnline(state.aiConsole || {})) {
+    state.aiConsoleStartInProgress = false;
+    state.aiConsoleStartError = "";
+  }
   if (state.activeView === "ai-console") ensureCopilotSession();
   renderAll();
 }
@@ -242,10 +288,21 @@ async function loadReports() {
 async function startSession(buttonId = "start-session-button", options = {}) {
   if (state.aiConsoleStartInProgress) return null;
   state.aiConsoleStartInProgress = true;
+  state.aiConsoleStartError = "";
   renderAiConsole();
   logEvent("button_clicked", { button_id: buttonId, user_action: "start_session" });
   try {
     const payload = await apiPost("/api/session/start", { hidden_window: !state.copilotWindowVisible, restart_existing: false });
+    const jobStatus = String(payload?.status || "").toLowerCase();
+    const dispatchStatus = String(payload?.dispatch?.response?.status || "").toLowerCase();
+    if (!payload || (!jobStatus && !dispatchStatus)) {
+      state.aiConsoleStartError = "Start av Copilot-session misslyckades.";
+    } else if (jobStatus === "failed" || ["failed", "error", "blocked"].includes(dispatchStatus)) {
+      state.aiConsoleStartError = payload?.dispatch?.reason
+        || payload?.dispatch?.response?.error
+        || payload?.dispatch?.response?.copilot?.stderr
+        || "Start av Copilot-session misslyckades.";
+    }
     if (payload?.job || payload?.job_id) addOrUpdateJob(payload.job || payload);
     if (!options.skipRefresh) await refreshStatusAndJobs();
     return payload;
@@ -322,6 +379,17 @@ function connectAiConsoleEvents() {
       mergeAiConsoleState(payload);
       if (isCopilotOnline(state.aiConsole || {})) state.aiConsoleStartInProgress = false;
       renderAiConsole();
+    } catch (error) {
+      logEvent("api_request_failed", { method: "SSE", path: "/api/ai-console/events", error: error.message });
+    }
+  });
+  events.addEventListener("heartbeat", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      state.lastAiConsoleEventAt = new Date().toISOString();
+      if (typeof payload?.cursor === "number") {
+        state.aiConsoleCursor = payload.cursor;
+      }
     } catch (error) {
       logEvent("api_request_failed", { method: "SSE", path: "/api/ai-console/events", error: error.message });
     }
@@ -442,18 +510,21 @@ function renderAiConsole() {
   const permissionsVerified = isOnline && Boolean(aiConsoleState.permissions_verified && aiConsoleState.permissions_hint);
   const projectVerified = isOnline && Boolean(aiConsoleState.project_verified && aiConsoleState.project_name);
   const commandReady = isOnline && Boolean(aiConsoleState.command_ready);
-  setSemanticBadge($("#ai-console-status"), `Status: ${status}${queue.pending ? ` · kö ${queue.pending}` : ""}`, statusBadgeTone(status, isOnline));
-  setSemanticBadge($("#copilot-window-mode"), `Motor: ${state.copilotWindowVisible ? "synlig" : "osynlig"}`, windowMatches ? "green" : (isOnline ? "yellow" : "gray"));
-  setSemanticBadge($("#ai-console-model"), modelVerified ? `Modell: ${aiConsoleState.model_hint}` : "Modell: ej verifierad", modelVerified ? "green" : (isOnline ? "yellow" : "gray"));
-  setSemanticBadge($("#ai-console-permissions"), permissionsVerified ? `Permissions: ${aiConsoleState.permissions_hint}` : "Permissions: ej verifierad", permissionsVerified ? "green" : (isOnline ? "yellow" : "gray"));
-  setSemanticBadge($("#ai-console-project"), projectVerified ? `Projekt: ${aiConsoleState.project_name}` : "Projekt: okänt", projectVerified ? "green" : (isOnline ? "yellow" : "gray"));
-  setSemanticBadge($("#ai-console-ready"), commandReady ? "Prompt: redo" : "Prompt: väntar", commandReady ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-status"), { label: "Status", value: `${status}${queue.pending ? ` · kö ${queue.pending}` : ""}`, icon: "status" }, statusBadgeTone(status, isOnline));
+  setSemanticBadge($("#copilot-window-mode"), { label: "Motor", value: state.copilotWindowVisible ? "synlig" : "osynlig", icon: "motor" }, windowMatches ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-model"), { label: "Modell", value: modelVerified ? aiConsoleState.model_hint : "ej verifierad", icon: "model" }, modelVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-permissions"), { label: "Permissions", value: permissionsVerified ? aiConsoleState.permissions_hint : "ej verifierad", icon: "permissions" }, permissionsVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-project"), { label: "Projekt", value: projectVerified ? aiConsoleState.project_name : "okänt", icon: "project" }, projectVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-ready"), { label: "Prompt", value: commandReady ? "redo" : "väntar", icon: "prompt" }, commandReady ? "green" : (isOnline ? "yellow" : "gray"));
   $("#ai-console-send").textContent = state.aiConsoleSending ? "Skickar..." : "Skicka";
   $("#ai-console-send").disabled = state.aiConsoleSending;
   $("#ai-console-send-esc").disabled = state.aiConsoleSending;
   $("#ai-console-send-tab").disabled = state.aiConsoleSending;
-  $("#copilot-start-session-button").textContent = state.aiConsoleStartInProgress ? "Startar..." : "Starta Copilot CLI-session";
-  $("#copilot-start-session-button").disabled = state.aiConsoleStartInProgress;
+  const startButton = $("#copilot-start-session-button");
+  startButton.querySelector(".console-status-action-label").textContent = state.aiConsoleStartInProgress ? "Startar..." : "Starta";
+  startButton.disabled = state.aiConsoleStartInProgress;
+  startButton.setAttribute("aria-label", state.aiConsoleStartInProgress ? "Startar Copilot CLI-session" : "Starta Copilot CLI-session");
+  startButton.classList.toggle("console-status-action-starting", state.aiConsoleStartInProgress);
   const outputElement = $("#ai-console-output");
   const shouldStickToBottom = outputElement.scrollTop + outputElement.clientHeight >= outputElement.scrollHeight - 12;
   if (outputElement.dataset.renderedTranscript !== outputHtml) {
@@ -482,7 +553,7 @@ function renderAiConsole() {
   }
   $("#ai-console-hint").textContent = aiConsoleState.user_input_required
     ? "Copilot väntar på input."
-    : (state.aiConsoleStartInProgress ? "Startar eller återansluter Copilot-session..." : (state.aiConsoleSending ? "Skickar till Copilot..." : "Redo."));
+    : (state.aiConsoleStartInProgress ? "Startar eller återansluter Copilot-session..." : (state.aiConsoleStartError || (state.aiConsoleSending ? "Skickar till Copilot..." : "Redo.")));
   const signature = `${status}|${Boolean(aiConsoleState.user_input_required)}|${output.length}|${queue.pending || 0}|${heartbeat.next_cursor ?? ""}`;
   if (state.lastAiConsoleSignature !== signature) {
     state.lastAiConsoleSignature = signature;
@@ -503,8 +574,19 @@ function statusBadgeTone(status, isOnline) {
 }
 
 function setSemanticBadge(element, text, tone) {
-  element.textContent = text;
-  element.className = `pill semantic-badge semantic-${tone}`;
+  const payload = typeof text === "string"
+    ? { label: text.split(":")[0] || text, value: text.includes(":") ? text.split(":").slice(1).join(":").trim() : text, icon: "status" }
+    : text;
+  const icon = CONSOLE_TILE_ICONS[payload.icon] || CONSOLE_TILE_ICONS.status;
+  element.className = `console-status-tile semantic-badge semantic-${tone}`;
+  element.dataset.label = payload.label;
+  element.dataset.value = payload.value;
+  element.setAttribute("aria-label", `${payload.label}: ${payload.value}`);
+  element.innerHTML = `
+    <span class="console-status-icon">${icon}</span>
+    <span class="console-status-label">${escapeHtml(payload.label)}</span>
+    <span class="console-status-value">${escapeHtml(payload.value)}</span>
+  `;
 }
 
 function renderTests() {
@@ -787,18 +869,9 @@ function wrapText(text, maxChars) {
 }
 
 function formatCopilotTranscriptForDisplay(text) {
-  return applyTerminalRedrawControls(removeCopilotTimerRedrawArtifacts(String(text || "")))
+  return applyTerminalRedrawControls(String(text || ""))
     .replace(/\x1B(?:\][^\x07]*(?:\x07|\x1B\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g, "")
-    .replace(/[^\S\r\n]+$/gm, "")
-    .replace(/\n{4,}/g, "\n\n\n")
-    .trimEnd();
-}
-
-function removeCopilotTimerRedrawArtifacts(text) {
-  return text.replace(
-    /([╰└][─━═┄┈┉\s]+[╯┘])(?:[0-9ms/ \b]+)(?=\s{2,}[\p{L}$●⌄∨/])/gu,
-    "$1\n",
-  );
+    .replace(/\u0000/g, "");
 }
 
 function applyTerminalRedrawControls(text) {
@@ -840,79 +913,47 @@ function applyTerminalRedrawControls(text) {
 function copilotTranscriptToHtml(text) {
   const lines = String(text || "").split("\n");
   const html = [];
-  let blankCount = 0;
-  let inThought = false;
   for (let index = 0; index < lines.length; index += 1) {
     const rawLine = lines[index];
-    const line = normalizeCopilotTranscriptLine(rawLine);
-    const trimmed = line.trim();
-    if (isCopilotTimerArtifact(trimmed)) continue;
-    if (!trimmed || isCopilotBorderLine(trimmed)) {
-      blankCount += 1;
-      if (blankCount <= 1) html.push('<div class="copilot-line spacer"></div>');
+    const analysisLine = normalizeCopilotTranscriptLine(rawLine);
+    const trimmed = analysisLine.trim();
+    const special = classifyCopilotLine(trimmed);
+    const classes = ["copilot-line"];
+    if (!rawLine.length) {
+      classes.push("spacer");
+      html.push(`<div class="${classes.join(" ")}">&nbsp;</div>`);
       continue;
     }
-    blankCount = 0;
-    const special = classifyCopilotLine(trimmed);
-    if (special) inThought = false;
     if (/^[⌄∨]\s*Thought for/i.test(trimmed)) {
-      inThought = true;
-      html.push(`<div class="copilot-line thought-heading">${escapeHtml(trimmed.replace(/^∨/, "⌄"))}</div>`);
+      classes.push("thought-heading");
     } else if (special === "message") {
-      html.push(`<div class="copilot-line message">${escapeHtml(trimmed)}</div>`);
+      classes.push("message");
     } else if (special === "shell") {
-      html.push(`<div class="copilot-line shell-call">${escapeHtml(trimmed)}</div>`);
+      classes.push("shell-call");
     } else if (special === "command-title") {
-      html.push(`<div class="copilot-line command-title">${escapeHtml(trimmed)}</div>`);
+      classes.push("command-title");
     } else if (special === "command-code") {
-      const commandLines = [trimmed];
-      while (index + 1 < lines.length) {
-        const nextLine = normalizeCopilotTranscriptLine(lines[index + 1]).trim();
-        if (!isContinuationCommandLine(nextLine)) break;
-        commandLines.push(nextLine);
-        index += 1;
-      }
-      html.push(commandCodeToHtml(commandLines.join(" ")));
+      classes.push("command-code");
     } else if (special === "question") {
-      html.push(`<div class="copilot-line question">${escapeHtml(trimmed)}</div>`);
+      classes.push("question");
     } else if (special === "selected-option") {
-      html.push(`<div class="copilot-line selected-option">${escapeHtml(trimmed.replace(/^[>›]\s*/, "❯ "))}</div>`);
+      classes.push("selected-option");
     } else if (special === "option") {
-      html.push(`<div class="copilot-line option">${escapeHtml(trimmed)}</div>`);
+      classes.push("option");
     } else if (special === "navigation-hint") {
-      html.push(`<div class="copilot-line navigation-hint">${escapeHtml(trimmed)}</div>`);
+      classes.push("navigation-hint");
     } else if (trimmed.startsWith("Disconnected -")) {
-      html.push(`<div class="copilot-line disconnected">${escapeHtml(trimmed)}</div>`);
-    } else if (inThought) {
-      html.push(`<div class="copilot-line thought-body">${escapeHtml(trimmed)}</div>`);
+      classes.push("disconnected");
     } else {
-      html.push(`<div class="copilot-line plain">${escapeHtml(trimmed)}</div>`);
+      classes.push("plain");
     }
+    html.push(`<div class="${classes.join(" ")}">${escapeHtml(rawLine)}</div>`);
   }
   return html.join("");
 }
 
 function normalizeCopilotTranscriptLine(line) {
-  return String(line || "")
-    .replace(/[│┃║╎┆]/g, "")
-    .replace(/[╭╮╰╯┌┐└┘]/g, "")
-    .replace(/^[\s─━═┄┈┉-]+$/, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .trimEnd();
-}
-
-function isCopilotBorderLine(line) {
-  return /^[─━═┄┈┉\s-]+$/.test(line);
-}
-
-function isCopilotTimerArtifact(line) {
-  if (!line) return false;
-  const compact = line.replace(/[◉◎○●∙·•⌛⠁-⣿\s]+/g, "");
-  const timerMatches = compact.match(/\d+(?:m|s)/g) || [];
-  const digitRuns = compact.match(/\d{4,}/g) || [];
-  if (!compact && /[◉◎○●∙·•⌛⠁-⣿]/.test(line)) return true;
-  if (/Session:\s*\d+(?:\.\d+)?\s+AIC used/i.test(line)) return true;
-  return timerMatches.length >= 2 || digitRuns.length >= 2 || (/^[0-9ms/.:/]+$/.test(compact) && compact.length > 6);
+  return String(line || "").replace(/\u00A0/g, " ").trimEnd();
 }
 
 function classifyCopilotLine(line) {
@@ -930,8 +971,6 @@ function classifyCopilotLine(line) {
 function isContinuationCommandLine(line) {
   return Boolean(line)
     && !classifyCopilotLine(line)
-    && !isCopilotBorderLine(line)
-    && !isCopilotTimerArtifact(line)
     && !/^(Copilot is attempting|Do you want|Question|User selected|Check if|C:\\|↑\/↓|[❯›>]\s*\d+\.|\d+\.)/.test(line);
 }
 
