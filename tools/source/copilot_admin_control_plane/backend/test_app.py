@@ -93,19 +93,19 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertGreaterEqual(catalog["count"], 1)
         self.assertIn("catalog_key", catalog["tests"][0])
-        csc_translation_test = next(
+        csc_localization_test = next(
             test for test in catalog["tests"]
-            if test["test_id"] == "regression-kundtjanst-english-translation-consistency"
+            if test["test_id"] == "regression-kundtjanst-svensk-lokalisering-och-terminologi"
         )
-        self.assertEqual("H", csc_translation_test["catalog_key"])
+        self.assertEqual("H", csc_localization_test["catalog_key"])
         self.assertEqual(
-            "testing\\regression_test\\kundtjanst-english-translation-consistency.md",
-            csc_translation_test["file_path"],
+            "testing\\regression_test\\kundtjanst-svensk-lokalisering-och-terminologi.md",
+            csc_localization_test["file_path"],
         )
-        self.assertEqual("ui-regression", csc_translation_test["test_type"])
-        self.assertEqual([], csc_translation_test["dependency_keys"])
-        self.assertEqual([], csc_translation_test["dependency_test_ids"])
-        self.assertEqual("none", csc_translation_test["dependency_mode"])
+        self.assertEqual("ui-regression", csc_localization_test["test_type"])
+        self.assertEqual([], csc_localization_test["dependency_keys"])
+        self.assertEqual([], csc_localization_test["dependency_test_ids"])
+        self.assertEqual("none", csc_localization_test["dependency_mode"])
 
         status, mermaid = self.request("GET", "/api/regression/mermaid")
         self.assertEqual(status, 200)

@@ -1,8 +1,8 @@
-# Customer Service Center English Translation Consistency Failure
+# Invalidated Customer Service Center English Translation Consistency Report
 
 ## Status
 
-Failed, verified through three reproductions with the same outcome.
+Invalidated. This report used the obsolete and inverted English-translation objective and must not be used as evidence for Swedish localization defects.
 
 ## Affected environment
 
@@ -14,11 +14,19 @@ Failed, verified through three reproductions with the same outcome.
 
 ## Related test case
 
+Historical obsolete test case:
+
 `testing\regression_test\kundtjanst-english-translation-consistency.md`
+
+Replacement test case:
+
+`testing\regression_test\kundtjanst-svensk-lokalisering-och-terminologi.md`
 
 ## Summary
 
-The Customer Service Center stage UI is not consistently translated to English. The run inspected all 12 menu groups, 115 menu items and 115 opened pages from the current navigation baseline. The same failure pattern was reproduced in three live inventory runs: Swedish menu labels, Swedish page headings, Swedish field labels, Swedish button text, Swedish table text, and mixed Swedish/English terminology remain visible throughout CSC.
+This report is retained only as historical evidence that the previous test definition was wrong. The run inspected all 12 menu groups, 115 menu items and 115 opened pages from the current navigation baseline, but it evaluated the UI against an English-only goal. That goal is the opposite of the current requirement.
+
+A valid Swedish localization report must instead identify every English, mixed-language or other foreign Customer Service UI expression, state exactly where it appears in the portal, and recommend the Swedish text that should replace it.
 
 No pages were blocked or unreachable during the third reproduction.
 

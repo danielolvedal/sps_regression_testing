@@ -12,7 +12,7 @@ regression-serviceportal-checkout-verify-and-create-contract
 
 ## Summary
 
-Start from the checkout page created by B, verify that customer data and pricing are correct, then accept the terms and create the contract.
+Start from the checkout page created by B, verify checkout and contract creation, and retry the full B -> G flow across at least ten migrated DS candidates before treating a stage failure as a confirmed regression.
 
 ## Dependencies
 
@@ -37,9 +37,30 @@ Manuellt/shared-browser-test i synlig serviceportal-session.
 
 Verifiera att checkout-sidan återanvänder korrekt kunddata från SPS, att sammanfattning och kostnader stämmer med det som valdes i `B`, att avtalsgodkännande fungerar och att användaren kan skapa kontrakt och få en bekräftelse.
 
+Eftersom testet körs i stage får ett misslyckande på en enskild parkering inte automatiskt klassas som regression. Om checkout eller kontraktsskapande inte passerar ska agenten gå tillbaka till `B`, välja ett annat DS med status `Migrated`, skapa en ny checkout och köra hela `G` igen. Testet ska använda minst **10 olika migrerade DS-kandidater** innan ett återkommande fel klassas som verifierat regressionsfel. Detta krävs för att skilja systemfel från DS-specifika konfigurationsfel, till exempel saknad produkt, saknad plats, felaktig taxa eller annan stage-data.
+
+Akka-garagen ska prioriteras som kandidater när de finns med status `Migrated`, eftersom de sannolikt har köpbara platser och därför är bra kontrollkandidater som bör kunna passera.
+
+## DS-omprövningsregel
+
+När `G` inte passerar för den checkout som skapades av `B` ska körningen hanteras enligt följande:
+
+1. Dokumentera aktuell DS-kandidat, produkt, checkout-URL, feltext och vilket kontrollsteg som föll.
+2. Klassificera observationen preliminärt som en av:
+   - `candidate configuration` om felet rimligen kan bero på parkeringens stage-konfiguration, till exempel ingen köpbar produkt, ingen ledig plats, saknad avgift, tom aviseringsmetod eller lokal prisanomali
+   - `potential regression` om felet ser systemiskt ut, till exempel samma valideringsfel, `NaN`, tappad session eller utebliven bekräftelse trots komplett checkoutdata
+3. Gå tillbaka till test `B`, välj en ny och tidigare oprövad DS-kandidat med status `Migrated`, och skapa en ny checkout.
+4. Kör hela `G` igen från den nya checkout-sidan.
+5. Fortsätt tills något av följande inträffar:
+   - ett DS passerar hela `B -> G`, vilket visar att det tidigare felet sannolikt var kandidat-/konfigurationsbundet
+   - minst 10 olika migrerade DS-kandidater har prövats och samma blockerande fel eller samma felkategori kvarstår
+   - färre än 10 rimliga migrerade kandidater kan hittas, vilket ska markeras som blockerat eller otillräckligt underlag, inte som verifierat regressionsfel
+
+Ett developer-facing fel i `test_reports` får skapas först när minst 10 olika migrerade DS-kandidater har prövats med samma blockerande utfall eller samma systemiska felkategori. De tre reproduktionerna enligt rapporteringsstandarden ska i så fall göras på denna 10-DS-baseline, inte genom att klicka om samma checkout för samma DS tre gånger.
+
 ## Teststeg
 
-1. Utgå från slutläget i test `B`, där checkout-sidan redan är öppen.
+1. Utgå från slutläget i test `B`, där checkout-sidan redan är öppen för den första migrerade DS-kandidaten.
 2. Öppna eller återanvänd motsvarande `EditContract`-vy i Kundtjänstportalen för samma användare.
 3. Kontrollera att `Personnummer/Organisationsnummer` är förifyllt i checkout.
 4. Kontrollera att följande fält i checkout matchar uppgifterna i `EditContract`:
@@ -65,8 +86,10 @@ Verifiera att checkout-sidan återanvänder korrekt kunddata från SPS, att samm
 16. Vänta tills kontraktet antingen skapas och en bekräftelsesida visas, eller tills ett tydligt felutfall visas.
 17. Om ett fel visas eller om användaren inte kommer vidare:
     - ta skärmdump på felet
-    - dokumentera exakt feltext, URL och observerat tillstånd
-    - reproducera samma utfall totalt tre gånger innan en utvecklarvänlig felrapport skapas i `test_reports`
+    - dokumentera exakt feltext, URL, DS-kandidat, produkt och observerat tillstånd
+    - gå tillbaka till test `B`, välj en ny migrerad DS-kandidat och kör om hela flödet till en ny checkout
+    - fortsätt tills minst 10 olika migrerade DS-kandidater har prövats, eller tills ett DS passerar hela flödet
+    - skapa inte en utvecklarvänlig felrapport i `test_reports` förrän 10 olika DS-kandidater visar samma blockerande utfall eller samma systemiska felkategori
 
 ## Förväntat resultat
 
@@ -79,6 +102,7 @@ Verifiera att checkout-sidan återanvänder korrekt kunddata från SPS, att samm
 - Det ska finnas minst en aviseringsmetod att välja.
 - Startdatum ska vara dagens datum.
 - `Skapa kontrakt` ska leda vidare till en bekräftelse utan blockerande fel.
+- Om första valda DS inte passerar ska minst en senare migrerad DS-kandidat kunna passera, eller så ska minst 10 olika migrerade DS-kandidater visa samma systemiska fel innan testet klassas som verifierat regressionsfel.
 
 ## Startläge
 
@@ -90,6 +114,8 @@ Verifiera att checkout-sidan återanvänder korrekt kunddata från SPS, att samm
 
 - I tidigare verifierade körningar användes användaren `Anna Walldén` och migrated DS `47184 | Malmen 14, Möllevångsgatan 42 garage A`.
 - Checkout-URL får ett nytt `saleId` när `B` körs om; testet ska därför följa flödet från `B` i stället för att lita på en hårdkodad checkout-URL.
+- Vid omprövning ska varje DS få en ny rad i kandidatloggen med DS-nummer, DS-namn, migration status, serviceportalens sökterm, vald produkt, checkout-URL, utfall och felkategori.
+- Prioritera Akka-garagen som kontrollkandidater om de är markerade som `Migrated`, eftersom de troligen har köpbara platser och ska vara mindre känsliga för kandidatkonfiguration.
 - Jämförelsen mot Kundtjänstportalen ska i första hand göras mot `Kontraktsammanfattning` och övriga kundfält i `EditContract`.
 - Om checkout visar dolda eller automatiskt satta värden ska dessa också dokumenteras när de påverkar resultatet, till exempel dolda identifieringsfält.
 
@@ -103,6 +129,7 @@ Verifiera att checkout-sidan återanvänder korrekt kunddata från SPS, att samm
 - Tidig Learning Mode-observation 2026-08-26: ett försök att skapa kontrakt stannade kvar inom checkoutflödet och visade bland annat feltexten `CustomerModel.PhoneNumber har ett felaktigt värde`.
 - Verifierad Regression Mode-observation 2026-08-27: efter `Skapa kontrakt` ändrades URL:en från `/garage/checkout/{saleId}` till `/garage/checkout`, men det dolda `SaleId`-fältet behöll samma GUID och checkoutdata låg kvar.
 - Verifierad Regression Mode-observation 2026-08-27: samma create-fel kan reproduceras genom att stänga `OK`-dialogen, säkerställa att `TermsAndConditions` fortsatt är ikryssad och klicka `Skapa kontrakt` igen.
+- Learning Mode-förtydligande 2026-08-28: ett fel på ett enskilt migrerat DS är inte längre tillräckligt för att skapa regressionsrapport. `G` måste pröva minst 10 olika migrerade DS-kandidater genom hela `B -> G`-kedjan innan ett återkommande checkout-/create-fel betraktas som verifierad regression.
 
 ## Felutfall
 
@@ -117,8 +144,15 @@ Testet ska markeras som underkänt om något av följande inträffar:
 - något prisfält visar `NaN`
 - dropdownen för aviseringsmetod är tom
 - startdatum inte är dagens datum
-- `Skapa kontrakt` leder inte till bekräftelse
-- ett valideringsfel eller annat blockerande fel hindrar att kontraktet skapas
+- `Skapa kontrakt` leder inte till bekräftelse för minst 10 olika migrerade DS-kandidater med samma blockerande utfall eller samma systemiska felkategori
+- ett valideringsfel eller annat blockerande fel hindrar att kontraktet skapas för minst 10 olika migrerade DS-kandidater med samma blockerande utfall eller samma systemiska felkategori
+
+Följande ska inte ensamt markera `G` som verifierat regressionsfel:
+
+- ett fel som bara observerats på en DS-kandidat
+- en kandidat utan köpbar produkt eller ledig plats
+- en kandidat med uppenbart DS-specifik stage-konfiguration
+- färre än 10 testade migrerade DS-kandidater när felet kan vara kandidatbundet
 
 ## Bevis / dokumentation
 
@@ -134,6 +168,10 @@ Dokumentera minst:
 - om service-/uppläggningsavgift kunde verifieras
 - om kontraktsskapandet lyckades
 - feltext och skärmdumpar om skapandet misslyckades
+- full kandidatlogg för varje prövat migrerat DS
+- antal unika DS-kandidater som prövades
+- vilka kandidater som var Akka-garage eller annan förväntat köpbar kontrollkandidat
+- om utfallet var DS-specifik konfigurationsavvikelse, potentiell regression, verifierad regression eller otillräckligt underlag
 
 ## Senast verifierad körning
 
@@ -153,7 +191,8 @@ Dokumentera minst:
 - **Verifierad aviseringsanomali:** `NotificationMethodPackageId` var tom med `0` valbara alternativ
 - **Avgiftsutfall:** ingen tydligt redovisad service-/uppläggningsavgift kunde verifieras i checkout; dolda värden visade bland annat `OnlineFee=0`, `TotalPrice=530` och `GrandTotal=530`
 - **Skapa-kontrakt-observation:** `Skapa kontrakt` reproducerades tre gånger med samma blockerande dialog: `Fel format` / `CustomerModel.PhoneNumber har ett felaktigt värde`
-- **Rapportstatus:** developer-facing defect report created under `test_reports\20260827v1\RegressionError01\report.md`
+- **Rapportstatus:** historisk developer-facing defect report finns under `test_reports\20260827v1\RegressionError01\report.md`, men rapporten uppfyller inte längre gällande 10-DS-krav och ska inte användas som verifierat regressionsfel utan omprövning.
+- **Giltighet efter ändrad DS-regel:** Den tidigare rapporten bygger på samma DS/checkout och uppfyller inte längre kravet på minst 10 olika migrerade DS-kandidater. Den ska behandlas som historisk observation tills felet har omprövats enligt den nya DS-omprövningsregeln.
 
 ## Relaterade dokument
 

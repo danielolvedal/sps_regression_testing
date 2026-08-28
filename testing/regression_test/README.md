@@ -16,9 +16,10 @@ Fokus:
 - `regression-test-dependencies.mmd` - fristående Mermaid-kod för regressionsflödenas beroenden; denna fil ska hållas synkad med katalogen och testfilerna.
 - `kontrakt-sok-anna-serviceportal-login.md` - manuellt/shared-browser-test som verifierar kontraktssökning på Anna, att kontrakt öppnas i nya stage och att testet avslutas på kundens inloggade serviceportalsida via `Users -> Actions`.
 - `serviceportal-nytt-kontrakt-migrated-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, klickar på `Nytt kontrakt`, väljer ett DS med status `Migrated` via `Admin -> Migrate DS` och verifierar nytt kontrakt-flödet i serviceportalen.
-- `serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - manuellt/shared-browser-test som tar vid från slutläget i `B` och verifierar checkoutdata, priser, avgifter, avtalsgodkännande och kontraktsskapande.
+- `serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - manuellt/shared-browser-test som tar vid från slutläget i `B`, verifierar checkoutdata, priser, avgifter, avtalsgodkännande och kontraktsskapande samt kräver omprövning över minst 10 olika migrerade DS-kandidater innan ett stage-fel klassas som verifierad regression.
 - `serviceportal-nytt-kontrakt-non-migrated-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, klickar på `Nytt kontrakt`, väljer ett DS som inte är migrerat via `Admin -> Migrate DS` och verifierar att en produkt kan köpas i serviceportalen.
-- `kundtjanst-english-translation-consistency.md` - manuellt/shared-browser-test som granskar alla Kundtjänst-/CSC-menyer och sidor i stage för engelsk översättning och konsekvent terminologi.
+- `kundtjanst-svensk-lokalisering-och-terminologi.md` - manuellt/shared-browser-test som granskar alla Kundtjänst-/CSC-menyer och sidor i stage för engelska, blandade eller andra utländska UI-uttryck och svensk terminologikonsekvens.
+- `wallboard-messages-layout-och-acknowledge.md` - manuellt/shared-browser-test som skapar sex aktiva wallboardmeddelanden i Admin, verifierar `FullScreen`/`HalfScreen`/`OneThirdScreen` i Stage och bekräftar att ett meddelande kräver `Acknowledge`.
 - `document-index-coverage.md` - beskriver det obligatoriska testet som verifierar att alla beständiga dokument/datafiler finns i `dokument_index\index.md`.
 - `kallinventering-coverage.md` - beskriver det obligatoriska testet som verifierar att `syntetisk_data\common\kallinventering.md` täcker aktuellt innehåll i `raw_data` och att påverkan spåras vidare till syntetiska dokument.
 - `regression-dependency-coverage.md` - beskriver regressionstestet som verifierar att testmetadata, regressionskatalogen och den fristående Mermaid-filen är synkade.
@@ -42,6 +43,8 @@ När ett UI-regressionstest körs och agenten lär sig något som gör nästa k�
 - en kort sektion för senast verifierad körning
 
 För DS-drivna köp- eller kontraktsflöden gäller dessutom att en kandidat utan köpbar produkt eller ledig plats normalt ska dokumenteras och hoppas över, inte omedelbart klassas som ett regressionsfel.
+
+För `G` gäller en skärpt regel: om checkout eller kontraktsskapande fallerar ska hela `B -> G`-kedjan upprepas med nya migrerade DS-kandidater. Ett verifierat regressionsfel får rapporteras först när minst 10 olika migrerade DS-kandidater visar samma blockerande utfall eller samma systemiska felkategori.
 
 Alla namngivna regressionstester ska dessutom hållas synkade mellan:
 

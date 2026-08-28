@@ -2,7 +2,9 @@
 
 ## Scope
 
-This run covers `regression-kundtjanst-english-translation-consistency` in Regression Mode.
+This historical run covered the obsolete `regression-kundtjanst-english-translation-consistency` objective in Regression Mode.
+
+The run is invalidated as a Swedish localization report because the objective was inverted: it checked for an English UI instead of identifying non-Swedish Customer Service UI text and recommending Swedish corrections. The replacement test definition is `regression-kundtjanst-svensk-lokalisering-och-terminologi`.
 
 ## Environment
 
