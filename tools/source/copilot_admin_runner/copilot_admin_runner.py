@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import re
@@ -269,34 +270,24 @@ def is_process_running(pid: Any) -> bool:
         return False
     if process_id <= 0:
         return False
+    if os.name == "nt":
+        process_query_limited_information = 0x1000
+        still_active = 259
+        handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, process_id)
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
     try:
         os.kill(process_id, 0)
-        return True
-    except PermissionError:
-        return True
     except OSError:
-        pass
-    if os.name == "nt":
-        try:
-            completed = subprocess.run(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    f"if (Get-Process -Id {process_id} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}",
-                ],
-                cwd=str(REPO_ROOT),
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return False
-        return completed.returncode == 0
-    return False
+        return False
+    return True
 
 
 def stop_process(pid: Any, timeout_seconds: int = 30) -> bool:
@@ -485,7 +476,7 @@ def copilot_session_status() -> dict[str, Any]:
 
 
 def start_copilot_session(
-    restart_existing: bool = False,
+    restart_existing: bool = True,
     log_input: bool = False,
     startup_model: str | None = "auto",
     allow_all: bool = True,
@@ -818,13 +809,16 @@ if ($expectedProfile -and $commandLine.IndexOf($expectedProfile, [System.StringC
   browser_path = [string]$process.ExecutablePath
 }} | ConvertTo-Json -Compress
 """
-    result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-        cwd=str(REPO_ROOT),
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        return None
     stdout = (result.stdout or "").strip()
     if result.returncode != 0 or not stdout:
         return None
@@ -893,6 +887,22 @@ def stop_browser_session(port: int | None = None, timeout_seconds: int = 30) -> 
     effective_port = int(port or before.get("port") or 9222)
     owner = None
     process_id = state.get("processId") or state.get("process_id")
+    if not before.get("running") and not process_id:
+        final_state = {
+            **state,
+            "status": "stopped",
+            "stopped_at": state.get("stopped_at") or utc_now(),
+            "updated_at": utc_now(),
+            "port": effective_port,
+        }
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        BROWSER_STATE_PATH.write_text(json.dumps(final_state, indent=2, ensure_ascii=False), encoding="utf-8")
+        return {
+            "status": "stopped",
+            "stopped_process": True,
+            "browser_session": browser_session_status(effective_port),
+            "note": "Browser session was already stopped and no owned processId was recorded.",
+        }
     if not process_id:
         owner = resolve_browser_process_id(effective_port, state.get("profileDir") or state.get("profile_dir"))
         process_id = owner.get("process_id") if owner else None
@@ -944,6 +954,7 @@ def stop_browser_session(port: int | None = None, timeout_seconds: int = 30) -> 
 def start_admin_session(request: dict[str, Any]) -> dict[str, Any]:
     dry_run = bool(request.get("dry_run"))
     skip_browser_start = bool(request.get("skip_browser_start"))
+    restart_existing = bool(request.get("restart_existing")) if "restart_existing" in request else True
     existing_copilot = copilot_session_status()
     if dry_run:
         copilot = {
@@ -951,7 +962,7 @@ def start_admin_session(request: dict[str, Any]) -> dict[str, Any]:
             "script": str(NODE_PTY_START_WINDOW_SCRIPT),
             "copilot_session": existing_copilot,
         }
-    elif existing_copilot.get("running") and not bool(request.get("restart_existing")):
+    elif existing_copilot.get("running") and not restart_existing:
         copilot = {
             "status": "reused_existing",
             "reason": "Existing node-pty Copilot session is already running; no new Copilot window was opened.",
@@ -973,7 +984,7 @@ def start_admin_session(request: dict[str, Any]) -> dict[str, Any]:
     else:
         startup_model = request["startup_model"] if "startup_model" in request else "auto"
         copilot = start_copilot_session(
-            restart_existing=bool(request.get("restart_existing")),
+            restart_existing=restart_existing,
             log_input=bool(request.get("log_input")),
             startup_model=str(startup_model) if startup_model else None,
             allow_all=not bool(request.get("no_allow_all")),
@@ -1289,7 +1300,7 @@ def handle_request(request: dict[str, Any], bridge: str = "direct") -> dict[str,
         elif action == "copilot-start":
             startup_model = request["startup_model"] if "startup_model" in request else "auto"
             payload = start_copilot_session(
-                restart_existing=bool(request.get("restart_existing")),
+                restart_existing=bool(request.get("restart_existing")) if "restart_existing" in request else True,
                 log_input=bool(request.get("log_input")),
                 startup_model=str(startup_model) if startup_model else None,
                 allow_all=not bool(request.get("no_allow_all")),
@@ -1763,12 +1774,13 @@ def build_parser() -> argparse.ArgumentParser:
     copilot_status_parser.set_defaults(func=run_copilot_status)
 
     copilot_start_parser = subparsers.add_parser("copilot-start", help="Start a visible node-pty Copilot window.")
-    copilot_start_parser.add_argument("--restart-existing", action="store_true")
+    copilot_start_parser.add_argument("--restart-existing", dest="restart_existing", action="store_true", help=argparse.SUPPRESS)
+    copilot_start_parser.add_argument("--reuse-existing", dest="restart_existing", action="store_false", help="Reuse an existing node-pty Copilot session instead of starting fresh.")
     copilot_start_parser.add_argument("--log-input", action="store_true")
     copilot_start_parser.add_argument("--startup-model", default="auto")
     copilot_start_parser.add_argument("--no-allow-all", action="store_true")
     copilot_start_parser.add_argument("--hidden-window", action="store_true")
-    copilot_start_parser.set_defaults(func=run_copilot_start)
+    copilot_start_parser.set_defaults(func=run_copilot_start, restart_existing=True)
 
     copilot_stop_parser = subparsers.add_parser("copilot-stop", help="Stop the active node-pty Copilot session.")
     copilot_stop_parser.add_argument("--timeout-seconds", type=int, default=30)
@@ -1798,13 +1810,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     session_start_parser = subparsers.add_parser("session-start", help="Start Copilot and browser host-side session.")
     session_start_parser.add_argument("--port", type=int, default=9222)
-    session_start_parser.add_argument("--restart-existing", action="store_true")
+    session_start_parser.add_argument("--restart-existing", dest="restart_existing", action="store_true", help=argparse.SUPPRESS)
+    session_start_parser.add_argument("--reuse-existing", dest="restart_existing", action="store_false", help="Reuse an existing node-pty Copilot session instead of starting fresh.")
     session_start_parser.add_argument("--log-input", action="store_true")
     session_start_parser.add_argument("--startup-model", default="auto")
     session_start_parser.add_argument("--no-allow-all", action="store_true")
     session_start_parser.add_argument("--hidden-window", action="store_true")
     session_start_parser.add_argument("--dry-run", action="store_true")
-    session_start_parser.set_defaults(func=run_session_start)
+    session_start_parser.set_defaults(func=run_session_start, restart_existing=True)
 
     session_stop_parser = subparsers.add_parser("session-stop", help="Stop Copilot and browser host-side session.")
     session_stop_parser.add_argument("--port", type=int, default=9222)

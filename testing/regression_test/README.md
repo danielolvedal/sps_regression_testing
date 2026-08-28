@@ -18,6 +18,7 @@ Fokus:
 - `serviceportal-nytt-kontrakt-migrated-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, klickar på `Nytt kontrakt`, väljer ett DS med status `Migrated` via `Admin -> Migrate DS` och verifierar nytt kontrakt-flödet i serviceportalen.
 - `serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - manuellt/shared-browser-test som tar vid från slutläget i `B` och verifierar checkoutdata, priser, avgifter, avtalsgodkännande och kontraktsskapande.
 - `serviceportal-nytt-kontrakt-non-migrated-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, klickar på `Nytt kontrakt`, väljer ett DS som inte är migrerat via `Admin -> Migrate DS` och verifierar att en produkt kan köpas i serviceportalen.
+- `kundtjanst-english-translation-consistency.md` - manuellt/shared-browser-test som granskar alla Kundtjänst-/CSC-menyer och sidor i stage för engelsk översättning och konsekvent terminologi.
 - `document-index-coverage.md` - beskriver det obligatoriska testet som verifierar att alla beständiga dokument/datafiler finns i `dokument_index\index.md`.
 - `kallinventering-coverage.md` - beskriver det obligatoriska testet som verifierar att `syntetisk_data\common\kallinventering.md` täcker aktuellt innehåll i `raw_data` och att påverkan spåras vidare till syntetiska dokument.
 - `regression-dependency-coverage.md` - beskriver regressionstestet som verifierar att testmetadata, regressionskatalogen och den fristående Mermaid-filen är synkade.

@@ -1,4 +1,19 @@
 const API_BASE = window.COPILOT_ADMIN_API_BASE || "";
+const FRONTEND_CONFIG = window.COPILOT_ADMIN_FRONTEND || {};
+const ROUTE_VERSION = FRONTEND_CONFIG.routeVersion || "dev";
+const VIEW_ROUTES = {
+  dashboard: "dashboard",
+  manualer: "manualer",
+  "ai-console": "ai-console",
+  regressioner: "regressioner",
+  mermaid: "mermaid",
+  rapporter: "rapporter",
+  jobb: "jobb",
+  loggar: "loggar",
+};
+const ROUTE_ALIASES = {
+  "ai-konsolen": "ai-console",
+};
 const POLL_MS = 1500;
 const CONSOLE_POLL_LIMIT = 24000;
 const MAX_CONSOLE_BUFFER = 200000;
@@ -100,6 +115,7 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 document.addEventListener("DOMContentLoaded", () => {
+  setActiveView(viewFromLocation(), { updateUrl: false, log: false });
   bindNavigation();
   bindModeControls();
   bindRegressionControls();
@@ -117,14 +133,37 @@ document.addEventListener("DOMContentLoaded", () => {
 function bindNavigation() {
   $$(".nav-item").forEach((button) => {
     button.addEventListener("click", () => {
-      const view = button.dataset.view;
-      state.activeView = view;
-      $$(".nav-item").forEach((item) => item.classList.toggle("active", item === button));
-      $$(".view").forEach((panel) => panel.classList.toggle("active", panel.id === `view-${view}`));
-      logEvent("page_view", { view });
-      if (view === "ai-console") ensureCopilotSession();
+      setActiveView(button.dataset.view, { updateUrl: true, log: true });
     });
   });
+  window.addEventListener("popstate", () => {
+    setActiveView(viewFromLocation(), { updateUrl: false, log: true });
+  });
+}
+
+function viewFromLocation() {
+  const segment = decodeURIComponent(window.location.pathname.split("/").filter(Boolean)[0] || "").toLowerCase();
+  return ROUTE_ALIASES[segment] || (Object.values(VIEW_ROUTES).includes(segment) ? segment : FRONTEND_CONFIG.route || "dashboard");
+}
+
+function versionedPathForView(view) {
+  const route = VIEW_ROUTES[view] || "dashboard";
+  return `/${route}/${ROUTE_VERSION}`;
+}
+
+function setActiveView(view, options = {}) {
+  const nextView = VIEW_ROUTES[view] ? view : "dashboard";
+  state.activeView = nextView;
+  $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === nextView));
+  $$(".view").forEach((panel) => panel.classList.toggle("active", panel.id === `view-${nextView}`));
+  if (options.updateUrl && window.history?.pushState) {
+    const nextPath = versionedPathForView(nextView);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ view: nextView, routeVersion: ROUTE_VERSION }, "", nextPath);
+    }
+  }
+  if (options.log) logEvent("page_view", { view: nextView, route_version: ROUTE_VERSION });
+  if (nextView === "ai-console") ensureCopilotSession();
 }
 
 function bindModeControls() {
@@ -292,7 +331,7 @@ async function startSession(buttonId = "start-session-button", options = {}) {
   renderAiConsole();
   logEvent("button_clicked", { button_id: buttonId, user_action: "start_session" });
   try {
-    const payload = await apiPost("/api/session/start", { hidden_window: !state.copilotWindowVisible, restart_existing: false });
+    const payload = await apiPost("/api/session/start", { hidden_window: !state.copilotWindowVisible, restart_existing: true });
     const jobStatus = String(payload?.status || "").toLowerCase();
     const dispatchStatus = String(payload?.dispatch?.response?.status || "").toLowerCase();
     if (!payload || (!jobStatus && !dispatchStatus)) {
@@ -553,7 +592,7 @@ function renderAiConsole() {
   }
   $("#ai-console-hint").textContent = aiConsoleState.user_input_required
     ? "Copilot väntar på input."
-    : (state.aiConsoleStartInProgress ? "Startar eller återansluter Copilot-session..." : (state.aiConsoleStartError || (state.aiConsoleSending ? "Skickar till Copilot..." : "Redo.")));
+    : (state.aiConsoleStartInProgress ? "Startar eller återansluter Copilot-session..." : (state.aiConsoleStartError || (state.aiConsoleSending ? "Skickar till Copilot..." : "Redo. Vanliga prompts kompletteras automatiskt med standardinstruktion.")));
   const signature = `${status}|${Boolean(aiConsoleState.user_input_required)}|${output.length}|${queue.pending || 0}|${heartbeat.next_cursor ?? ""}`;
   if (state.lastAiConsoleSignature !== signature) {
     state.lastAiConsoleSignature = signature;
@@ -591,6 +630,16 @@ function setSemanticBadge(element, text, tone) {
 
 function renderTests() {
   const select = $("#regression-select");
+  if (!state.tests.length) {
+    select.innerHTML = "";
+    $("#regression-list").innerHTML = `
+    <article class="item warning" data-testid="regression-api-warning">
+      <h3>Inga regressionstester kunde läsas</h3>
+      <p>Frontend kunde inte hämta <code>/api/regression/tests</code>. Kontrollera att Copilot-admin backend körs mot rätt repository och starta om adminstacken vid behov.</p>
+    </article>
+  `;
+    return;
+  }
   select.innerHTML = state.tests.map((test) => {
     const id = test.test_id || test.id || test.catalog_key;
     return `<option value="${escapeAttr(id)}">${escapeHtml(test.catalog_key || id)} · ${escapeHtml(id)} · ${escapeHtml(test.title || test.summary || "")}</option>`;
@@ -602,6 +651,7 @@ function renderTests() {
       <h3>${escapeHtml(test.catalog_key || "")} · ${escapeHtml(id || "Regressionstest")}</h3>
       <p>${escapeHtml(test.summary || "Ingen sammanfattning.")}</p>
       <div class="item-meta">Beroenden: ${escapeHtml((test.dependencies || []).join(", ") || "inga")}</div>
+      <div class="item-meta">Fil: ${escapeHtml(test.file_path || test.file || "saknas")}</div>
       <div class="item-actions">
         <button data-testid="run-regression-item-button" data-run-test-id="${escapeAttr(id)}">Kör detta test</button>
       </div>
@@ -1128,14 +1178,7 @@ function mockStatus() {
 }
 
 function mockTests() {
-  return {
-    tests: [
-      { id: "A", title: "Kontraktssökning och serviceportal-login", summary: "Verifierar grundflöde och login.", dependencies: [] },
-      { id: "B", title: "Nytt kontrakt på migrerat DS", summary: "Verifierar köpflöde efter migreringsval.", dependencies: ["A"] },
-      { id: "C", title: "Checkout och skapa kontrakt", summary: "Verifierar checkoutdata och avtalsskapande.", dependencies: ["B"] },
-      { id: "D", title: "Nytt kontrakt på ej migrerat DS", summary: "Verifierar köpbar produkt för non-migrated DS.", dependencies: ["A"] },
-    ],
-  };
+  return { tests: [] };
 }
 
 function mockMermaid() {

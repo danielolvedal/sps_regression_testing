@@ -118,9 +118,9 @@ if ($DryRun) {
         startup_model = $StartupModel
         allow_all = $true
         session_start_requested = [bool]$StartCopilotSession
-        session_start_policy = if ($StartCopilotSession) { 'start-tool' } else { 'ai-console-on-demand' }
+        session_start_policy = if ($StartCopilotSession) { 'start-tool-fresh-copilot' } else { 'ai-console-on-demand-fresh-copilot' }
         copilot_window_mode = if ($HideCopilotWindow) { 'hidden' } else { 'visible' }
-        singleton_policy = 'reuse existing Copilot/browser sessions; for visible localhost admin UI work use runtime\start-collaborative-copilot-admin-browser.ps1 instead of the stage browser or automation browser'
+        singleton_policy = 'Copilot session starts fresh by default; browser session may reuse existing owned admin browser. For visible localhost admin UI work use runtime\start-collaborative-copilot-admin-browser.ps1 instead of the stage browser or automation browser'
         visible_admin_browser_script = '.\runtime\start-collaborative-copilot-admin-browser.ps1'
     } | ConvertTo-Json -Depth 10
     Write-Host "Regression tool suite started - Graphical interface at: $uiUrl"
@@ -192,7 +192,7 @@ if ($OpenUiInSharedBrowser) {
 $sessionJob = $null
 if ($StartCopilotSession) {
     $sessionBody = @{
-        restart_existing = [bool]$RestartExisting
+        restart_existing = $true
         startup_model = $StartupModel
         hidden_window = [bool]$HideCopilotWindow
     }
@@ -210,9 +210,9 @@ $state = [ordered]@{
     startup_model = $StartupModel
     allow_all = $true
     session_start_requested = [bool]$StartCopilotSession
-    session_start_policy = if ($StartCopilotSession) { 'start-tool' } else { 'ai-console-on-demand' }
+    session_start_policy = if ($StartCopilotSession) { 'start-tool-fresh-copilot' } else { 'ai-console-on-demand-fresh-copilot' }
     copilot_window_mode = if ($HideCopilotWindow) { 'hidden' } else { 'visible' }
-    singleton_policy = 'reuse existing Copilot/browser sessions; for visible localhost admin UI work use runtime\start-collaborative-copilot-admin-browser.ps1 instead of the stage browser or automation browser'
+    singleton_policy = 'Copilot session starts fresh by default; browser session may reuse existing owned admin browser. For visible localhost admin UI work use runtime\start-collaborative-copilot-admin-browser.ps1 instead of the stage browser or automation browser'
     visible_admin_browser_script = '.\runtime\start-collaborative-copilot-admin-browser.ps1'
     admin_ui_opened_in_shared_browser = [bool]$OpenUiInSharedBrowser
     host_runner_started_by_script = $hostRunnerStarted

@@ -50,6 +50,17 @@ DEFAULT_CONSOLE_TAIL_BYTES = 12000
 MAX_CONSOLE_DELTA_BYTES = 65536
 DEFAULT_HOST_RUNNER_URL = "http://127.0.0.1:8766"
 CONSOLE_EVENT_POLL_SECONDS = 0.03
+FRONTEND_ROUTES = {
+    "dashboard": "dashboard",
+    "manualer": "manualer",
+    "ai-console": "ai-console",
+    "ai-konsolen": "ai-console",
+    "regressioner": "regressioner",
+    "mermaid": "mermaid",
+    "rapporter": "rapporter",
+    "jobb": "jobb",
+    "loggar": "loggar",
+}
 JOB_STATUSES = {
     "queued",
     "running",
@@ -59,6 +70,10 @@ JOB_STATUSES = {
     "failed",
 }
 ACTIVE_STATUSES = {"queued", "running", "user_input_required"}
+AI_CONSOLE_STANDARD_INSTRUCTION = (
+    "Om instruktionen är oklar eller otydlig ställ klargörande frågor, "
+    "om instruktionen påverkar befintliga tester måste användaren informeras om konsekvenserna av den ändringen."
+)
 
 
 def current_transport_db_path() -> Path:
@@ -88,6 +103,20 @@ def normalize_mode(value: Any) -> str | None:
     if text in {"testing", "testing mode"}:
         return "testing"
     return None
+
+
+def is_ai_console_special_input(text: str) -> bool:
+    raw = str(text or "")
+    stripped = raw.strip()
+    return raw in {"\t", "\x1b"} or stripped == "\x1b" or stripped.startswith("/")
+
+
+def with_ai_console_standard_instruction(text: str) -> str:
+    if is_ai_console_special_input(text):
+        return text
+    if AI_CONSOLE_STANDARD_INSTRUCTION in text:
+        return text
+    return f"{text.rstrip()}\n\nStandardinstruktion: {AI_CONSOLE_STANDARD_INSTRUCTION}"
 
 
 class ApiError(Exception):
@@ -191,6 +220,22 @@ def read_optional_json_file(path: Path, default: Any) -> Any:
         return default
 
 
+def frontend_route_version() -> str:
+    paths = [FRONTEND_DIR / "index.html", FRONTEND_DIR / "app.js", FRONTEND_DIR / "styles.css"]
+    latest_ns = max((path.stat().st_mtime_ns for path in paths if path.is_file()), default=0)
+    return f"v{latest_ns:x}"
+
+
+def normalize_frontend_route(path: str) -> tuple[str, str | None] | None:
+    parts = [unquote(part).strip() for part in path.strip("/").split("/") if part.strip()]
+    if not parts:
+        return ("dashboard", None)
+    route = FRONTEND_ROUTES.get(parts[0].casefold())
+    if route is None or len(parts) > 2:
+        return None
+    return (route, parts[1] if len(parts) == 2 else None)
+
+
 def is_process_running(pid: Any) -> bool:
     try:
         pid_int = int(pid)
@@ -278,18 +323,43 @@ class ControlPlaneBackend:
             if len(cells) != 5:
                 continue
             dependency_text = cells[1].strip("`")
-            dependencies = [] if dependency_text == "-" else [part.strip() for part in dependency_text.split("->")]
+            catalog_key = cells[0].strip("`")
+            file_path = cells[4].strip("`")
+            dependency_keys = []
+            if dependency_text != "-":
+                dependency_keys = [part.strip() for part in dependency_text.split("->") if part.strip() and part.strip() != catalog_key]
             entries.append(
                 {
-                    "catalog_key": cells[0].strip("`"),
+                    "catalog_key": catalog_key,
                     "dependency": dependency_text,
-                    "dependencies": dependencies,
+                    "dependencies": dependency_keys,
+                    "dependency_keys": dependency_keys,
                     "test_id": cells[2].strip("`"),
                     "summary": cells[3],
-                    "file": cells[4].strip("`"),
+                    "file": file_path,
+                    "file_path": file_path,
+                    "test_type": self.test_type_for(REPO_ROOT / file_path),
                 }
             )
+        test_id_by_key = {entry["catalog_key"]: entry["test_id"] for entry in entries}
+        for entry in entries:
+            entry["dependency_test_ids"] = [
+                test_id_by_key[key] for key in entry["dependency_keys"] if key in test_id_by_key
+            ]
+            entry["dependency_mode"] = "required" if entry["dependency_keys"] else "none"
         return {"path": rel_path(CATALOG_PATH), "count": len(entries), "tests": entries}
+
+    def test_type_for(self, path: Path) -> str:
+        if not path.is_file():
+            return "unknown"
+        text = path.read_text(encoding="utf-8")
+        match = re.search(r"^## Typ\s*$\n+(.*?)(?=^\#\# |\Z)", text, flags=re.MULTILINE | re.DOTALL)
+        typ = " ".join(match.group(1).split()).lower() if match else ""
+        if "ui" in typ or "shared-browser" in typ or "browser" in typ:
+            return "ui-regression"
+        if "struktur" in typ or "structure" in typ or "runtime" in typ:
+            return "structure-regression"
+        return "regression"
 
     def mermaid(self) -> dict[str, Any]:
         text = MERMAID_PATH.read_text(encoding="utf-8")
@@ -709,6 +779,7 @@ class ControlPlaneBackend:
                 "state_dir": rel_path(STATE_DIR),
                 "log_dir": rel_path(LOG_DIR),
                 "frontend_dir": str(FRONTEND_DIR),
+                "frontend_route_version": frontend_route_version(),
             },
         }
 
@@ -741,7 +812,7 @@ class ControlPlaneBackend:
         if host_runner_url():
             if job["type"] == "session_start":
                 payload = dict(job["payload"])
-                payload.setdefault("restart_existing", False)
+                payload.setdefault("restart_existing", True)
                 payload.setdefault("startup_model", "auto")
                 payload.setdefault("port", int(os.environ.get("COPILOT_ADMIN_SESSION_BROWSER_PORT", "9222")))
                 response = self.call_host_runner("POST", "/api/session/start", payload)
@@ -795,9 +866,10 @@ class ControlPlaneBackend:
         return {"dispatched": True, "queue_file": rel_path(request_path)}
 
     def send_ai_console_input(self, payload: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
-        text = str(payload.get("text") if payload.get("text") is not None else payload.get("prompt") or "")
-        if not text.strip() and text not in {"\t", "\x1b"}:
+        raw_text = str(payload.get("text") if payload.get("text") is not None else payload.get("prompt") or "")
+        if not raw_text.strip() and raw_text not in {"\t", "\x1b"}:
             raise ApiError(400, "text is required.")
+        text = with_ai_console_standard_instruction(raw_text)
         submit = payload.get("submit") is not False
         job_id = payload.get("job_id") or f"console-{uuid.uuid4().hex}"
         request = {
@@ -1121,8 +1193,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             path = parsed.path.rstrip("/") or "/"
-            if path == "/":
-                self.send_static("index.html")
+            frontend_route = normalize_frontend_route(path)
+            if frontend_route is not None:
+                self.send_frontend_route(*frontend_route)
             elif path in {"/app.js", "/styles.css"}:
                 self.send_static(path.lstrip("/"))
             elif path == "/api/health":
@@ -1155,6 +1228,43 @@ class Handler(BaseHTTPRequestHandler):
             if self.is_client_disconnect(exc):
                 return
             self.handle_error(exc)
+
+    def send_redirect(self, location: str) -> None:
+        encoded = b""
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def send_frontend_route(self, route: str, version: str | None) -> None:
+        latest_version = frontend_route_version()
+        canonical_path = f"/{route}/{latest_version}"
+        if version != latest_version:
+            self.send_redirect(canonical_path)
+            return
+        self.send_index(route, latest_version)
+
+    def send_index(self, route: str, route_version: str) -> None:
+        index_path = ensure_child(FRONTEND_DIR, FRONTEND_DIR / "index.html")
+        if not index_path.is_file():
+            raise ApiError(404, "Frontend asset not found.")
+        html = index_path.read_text(encoding="utf-8")
+        config_script = (
+            "<script>"
+            "window.COPILOT_ADMIN_FRONTEND="
+            + json.dumps({"route": route, "routeVersion": route_version}, ensure_ascii=False, separators=(",", ":"))
+            + ";</script>"
+        )
+        html = html.replace('<link rel="stylesheet" href="styles.css" />', '<link rel="stylesheet" href="/styles.css" />')
+        html = html.replace('<script type="module" src="app.js"></script>', f'{config_script}\n    <script type="module" src="/app.js"></script>')
+        data = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def send_static(self, relative_path: str) -> None:
         static_path = ensure_child(FRONTEND_DIR, FRONTEND_DIR / relative_path)

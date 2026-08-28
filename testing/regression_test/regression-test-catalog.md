@@ -34,6 +34,7 @@ ska agenten först läsa denna katalog och därefter öppna rätt testfil.
 | `E` | `-` | `regression-kallinventering-coverage` | Validate raw-data coverage and downstream synthetic-data traceability in kallinventering.md. | `testing\regression_test\kallinventering-coverage.md` |
 | `F` | `-` | `regression-regression-dependency-synchronization` | Validate synchronization between regression test metadata, the regression catalog, and the standalone Mermaid dependency file. | `testing\regression_test\regression-dependency-coverage.md` |
 | `G` | `B -> G` | `regression-serviceportal-checkout-verify-and-create-contract` | Start from the checkout page created by B, verify that customer data and pricing are correct, then accept the terms and create the contract. | `testing\regression_test\serviceportal-checkout-verifiering-och-skapa-kontrakt.md` |
+| `H` | `-` | `regression-kundtjanst-english-translation-consistency` | Audit every Customer Service Center menu and page in stage for English translation coverage and consistent terminology. | `testing\regression_test\kundtjanst-english-translation-consistency.md` |
 
 ## Beroendegraf
 
@@ -49,6 +50,7 @@ Den fristående Mermaid-koden finns i:
 - `G` bygger vidare på slutläget i `B` och verifierar checkout- samt skapa-kontrakt-steget.
 - `C` bygger på att `A` först etablerar rätt inloggad serviceportal-session och startar därefter med `Nytt kontrakt` innan ett DS som inte är migrerat används.
 - `D`, `E` och `F` är fristående strukturregressioner utan beroenden till UI-flödena.
+- `H` är ett fristående Kundtjänst-/CSC-UI-test som granskar alla stage-menyer mot engelsk översättning och konsekvent terminologi.
 - Nya tester ska läggas till i tabellen och i Mermaid-grafen när de införs.
 
 ## Underhållsregel

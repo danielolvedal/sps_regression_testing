@@ -13,11 +13,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest import mock
 from urllib.error import HTTPError
+from urllib.request import HTTPRedirectHandler, build_opener
 from urllib.request import Request, urlopen
 
 os.environ.setdefault("COPILOT_ADMIN_ENV", "test")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import app
+
+
+AI_CONSOLE_STANDARD_INSTRUCTION = (
+    "Om instruktionen är oklar eller otydlig ställ klargörande frågor, "
+    "om instruktionen påverkar befintliga tester måste användaren informeras om konsekvenserna av den ändringen."
+)
 
 
 class BackendSmokeTests(unittest.TestCase):
@@ -86,6 +93,19 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertGreaterEqual(catalog["count"], 1)
         self.assertIn("catalog_key", catalog["tests"][0])
+        csc_translation_test = next(
+            test for test in catalog["tests"]
+            if test["test_id"] == "regression-kundtjanst-english-translation-consistency"
+        )
+        self.assertEqual("H", csc_translation_test["catalog_key"])
+        self.assertEqual(
+            "testing\\regression_test\\kundtjanst-english-translation-consistency.md",
+            csc_translation_test["file_path"],
+        )
+        self.assertEqual("ui-regression", csc_translation_test["test_type"])
+        self.assertEqual([], csc_translation_test["dependency_keys"])
+        self.assertEqual([], csc_translation_test["dependency_test_ids"])
+        self.assertEqual("none", csc_translation_test["dependency_mode"])
 
         status, mermaid = self.request("GET", "/api/regression/mermaid")
         self.assertEqual(status, 200)
@@ -105,6 +125,7 @@ class BackendSmokeTests(unittest.TestCase):
             status = response.status
         self.assertEqual(status, 200)
         self.assertIn("SPS Copilot-admin", html)
+        self.assertIn("COPILOT_ADMIN_FRONTEND", html)
 
         req = Request(f"http://127.0.0.1:{self.port}/app.js", method="GET")
         with urlopen(req, timeout=5) as response:
@@ -112,6 +133,31 @@ class BackendSmokeTests(unittest.TestCase):
             status = response.status
         self.assertEqual(status, 200)
         self.assertIn("/api/status", js)
+
+    def test_frontend_routes_redirect_to_latest_version(self) -> None:
+        class NoRedirect(HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+                return None
+
+        opener = build_opener(NoRedirect)
+        with self.assertRaises(HTTPError) as redirect_ctx:
+            opener.open(Request(f"http://127.0.0.1:{self.port}/mermaid", method="GET"), timeout=5)
+        self.assertEqual(redirect_ctx.exception.code, 302)
+        location = redirect_ctx.exception.headers["Location"]
+        self.assertRegex(location, r"^/mermaid/v[0-9a-f]+$")
+
+        with self.assertRaises(HTTPError) as stale_ctx:
+            opener.open(Request(f"http://127.0.0.1:{self.port}/Regressioner/stale-version", method="GET"), timeout=5)
+        self.assertEqual(stale_ctx.exception.code, 302)
+        self.assertRegex(stale_ctx.exception.headers["Location"], r"^/regressioner/v[0-9a-f]+$")
+
+        with urlopen(Request(f"http://127.0.0.1:{self.port}{location}", method="GET"), timeout=5) as response:
+            html = response.read().decode("utf-8")
+        self.assertEqual(response.status, 200)
+        self.assertIn('"route":"mermaid"', html)
+        self.assertIn('"routeVersion":"', html)
+        self.assertIn('href="/styles.css"', html)
+        self.assertIn('src="/app.js"', html)
 
     def test_job_lifecycle_and_control_api(self) -> None:
         self.request("POST", "/api/test/reset", {})
@@ -141,6 +187,13 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(status, 201)
         self.assertIn(test["test_id"], job["prompt"])
         self.assertIn(test["catalog_key"], job["prompt"])
+
+    def test_catalog_dependencies_do_not_include_the_current_test(self) -> None:
+        status, catalog = self.request("GET", "/api/regression/tests")
+        self.assertEqual(status, 200)
+        tests_by_key = {test["catalog_key"]: test for test in catalog["tests"]}
+        self.assertEqual(["B"], tests_by_key["G"]["dependency_keys"])
+        self.assertNotIn("G", tests_by_key["G"]["dependencies"])
 
     def test_frontend_log_ingestion(self) -> None:
         status, response = self.request("POST", "/api/frontend/events", {"event": "page_view", "trace_id": "frontend-trace"})
@@ -184,15 +237,20 @@ class BackendSmokeTests(unittest.TestCase):
         rows = conn.execute("SELECT * FROM input_queue ORDER BY id").fetchall()
         self.assertEqual(1, len(rows))
         queued_body = dict(rows[0])
-        self.assertEqual("svara ja", queued_body["text"])
+        self.assertTrue(queued_body["text"].startswith("svara ja\n\nStandardinstruktion: "))
+        self.assertIn(AI_CONSOLE_STANDARD_INSTRUCTION, queued_body["text"])
         self.assertEqual(1, queued_body["clear_line"])
 
         status, tab_queued = self.request("POST", "/api/ai-console/input", {"text": "\t", "submit": False, "clear_line": False})
         self.assertEqual(status, 202)
         self.assertTrue(tab_queued["accepted"])
+        status, help_queued = self.request("POST", "/api/ai-console/input", {"text": "/help"})
+        self.assertEqual(status, 202)
+        self.assertTrue(help_queued["accepted"])
         queue_bodies = [dict(row) for row in conn.execute("SELECT * FROM input_queue ORDER BY id").fetchall()]
         conn.close()
         self.assertTrue(any(body["text"] == "\t" and body["clear_line"] == 0 and body["submit"] == 0 for body in queue_bodies))
+        self.assertTrue(any(body["text"] == "/help" and body["submit"] == 1 for body in queue_bodies))
 
     def test_ai_console_does_not_verify_permissions_from_requested_policy_only(self) -> None:
         self.request(
@@ -471,6 +529,9 @@ class BackendSmokeTests(unittest.TestCase):
                 self.assertEqual(status, 201)
                 self.assertEqual(session_job["status"], "running")
                 self.assertEqual(session_job["dispatch"]["target"], "host-runner")
+                session_start_calls = [call for call in calls if call["method"] == "POST" and call["path"] == "/api/session/start"]
+                self.assertTrue(session_start_calls)
+                self.assertTrue(session_start_calls[-1]["body"]["restart_existing"])
 
                 status, hidden_session_job = local_request("POST", "/api/session/start", {"hidden_window": True})
                 self.assertEqual(status, 201)
@@ -478,6 +539,7 @@ class BackendSmokeTests(unittest.TestCase):
                 session_start_calls = [call for call in calls if call["method"] == "POST" and call["path"] == "/api/session/start"]
                 self.assertTrue(session_start_calls)
                 self.assertTrue(session_start_calls[-1]["body"]["hidden_window"])
+                self.assertTrue(session_start_calls[-1]["body"]["restart_existing"])
 
                 status, input_job = local_request("POST", "/api/jobs", {"type": "custom", "prompt": "smoke"})
                 self.assertEqual(status, 201)
@@ -494,7 +556,8 @@ class BackendSmokeTests(unittest.TestCase):
                 self.assertEqual(console_input["target"], "host-runner")
                 input_calls = [call for call in calls if call["method"] == "POST" and call["path"] == "/copilot/input"]
                 self.assertTrue(input_calls)
-                self.assertEqual(input_calls[-1]["body"]["text"], "frontend ai-console smoke")
+                self.assertTrue(input_calls[-1]["body"]["text"].startswith("frontend ai-console smoke\n\nStandardinstruktion: "))
+                self.assertIn(AI_CONSOLE_STANDARD_INSTRUCTION, input_calls[-1]["body"]["text"])
                 self.assertTrue(input_calls[-1]["body"]["clear_line"])
                 self.assertIn("trace_id", input_calls[-1]["body"])
                 self.assertIn("backend_accepted_at", input_calls[-1]["body"])
@@ -502,7 +565,7 @@ class BackendSmokeTests(unittest.TestCase):
                 status, esc_input = local_request("POST", "/api/ai-console/input", {"text": "\u001b", "submit": False, "clear_line": False})
                 self.assertEqual(status, 202)
                 self.assertTrue(esc_input["accepted"])
-                self.assertEqual(input_calls[-1]["body"]["text"], "frontend ai-console smoke")
+                self.assertTrue(input_calls[-1]["body"]["text"].startswith("frontend ai-console smoke\n\nStandardinstruktion: "))
                 input_calls = [call for call in calls if call["method"] == "POST" and call["path"] == "/copilot/input"]
                 self.assertEqual(input_calls[-1]["body"]["text"], "\u001b")
                 self.assertFalse(input_calls[-1]["body"]["submit"])

@@ -6,6 +6,10 @@ Detta dokument beskriver hur SPS-regressionsprojektet ska användas i praktiken 
 
 Control plane ska vara en administrativ yta runt arbetet, inte en ersättning för den gemensamma Copilot-sessionen eller den synliga browsern.
 
+För regressionsarbete ska en Copilot-session som startas via adminflödet alltid startas **fräscht**. Verktygen ska alltså inte återanvända en redan körande node-pty-session som kan bära med sig gammal kontext, utan stoppa den och starta om sessionen innan nästa regressionskörning.
+
+Vanlig fritext som skickas via AI-konsolen ska dessutom kompletteras automatiskt med en standardinstruktion: om instruktionen är oklar eller otydlig ska Copilot ställa klargörande frågor, och om instruktionen påverkar befintliga tester ska användaren informeras om konsekvenserna av ändringen. Rena kontrollinmatningar som `Esc`, `Tab` och slash-kommandon ska däremot inte skrivas om.
+
 Den praktiska modellen är därför:
 
 1. Windows-värden äger Copilot CLI, PowerShell, runtime-skript och den synliga browsern.
@@ -64,6 +68,38 @@ Control plane ska då visa en lokal webbsida, exempelvis `http://localhost:<port
 | Copilot CLI-terminal | Gemensam operatörssession där användaren och Copilot för dialog och där Copilot utför arbete. |
 | Synlig browser | Gemensam testyta där användaren kan logga in och Copilot kan observera/styra UI. |
 | Web control plane | Administrativ vy för status, rapporter, Mermaid-graf, loggar och standardiserade åtgärder. |
+
+### 6.1 Verifiera att regressioner läses från backend
+
+Copilot-admins menyval ska öppnas via backendens URL, normalt `http://127.0.0.1:8765/`. Öppna inte `tools\source\copilot_admin_control_plane\frontend\index.html` direkt som fil, eftersom frontenden då inte kan läsa backend-API:er som `GET /api/regression/tests`.
+
+Varje huvudvy ska ha en egen kanonisk frontend-route med versions-id:
+
+| Vy | Route |
+| --- | --- |
+| Dashboard | `/dashboard/<version>` |
+| Manualer | `/manualer/<version>` |
+| AI-konsolen | `/ai-console/<version>` |
+| Regressioner | `/regressioner/<version>` |
+| Mermaid | `/mermaid/<version>` |
+| Rapporter | `/rapporter/<version>` |
+| Jobb | `/jobb/<version>` |
+| Loggar | `/loggar/<version>` |
+
+Backend ska redirecta kortformen, till exempel `/mermaid`, och gamla versions-URL:er, till exempel `/mermaid/<gammalt-id>`, till aktuell version. Det gör att en uppdaterad frontendmodul kan tvingas fram genom URL:en i stället för att användaren behöver gissa om browsern visar gammal state.
+
+När ett nytt regressionstest har lagts till ska backendens katalog-API visa testet innan det kan köras från UI:t:
+
+```powershell
+Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/regression/tests'
+```
+
+Om API:t visar testet men UI:t inte gör det ska browserfliken hårduppdateras. Om API:t inte visar testet kör adminstacken sannolikt med gammal backendprocess, fel repository-root eller gammal container och ska startas om via:
+
+```powershell
+.\stop_tool.ps1
+.\start_tool.ps1
+```
 
 ### 7. Stoppa adminstacken säkert
 

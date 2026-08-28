@@ -393,9 +393,18 @@ function hasPermissionConfirmation(text) {
 
 const PERMISSION_ALLOW_ALL_COMMAND = '/permissions allow-all';
 
+function writeInteractiveInput(term, text, { clearLine = false, submit = true } = {}) {
+  if (clearLine) {
+    term.write('\x15');
+  }
+  term.write(text);
+  if (submit) {
+    term.write('\r');
+  }
+}
+
 function sendStartupCommand(term, command) {
-  term.write('\x15');
-  term.write(`${command}\r`);
+  writeInteractiveInput(term, command, { clearLine: true, submit: true });
 }
 
 function parseArgs(argv) {
@@ -873,11 +882,8 @@ async function runInteractiveCopilot(options = {}) {
           skippedDb.close();
           logEvent('node_pty_interactive_injection_skipped', { input_id: request.input_id, reason: 'empty_text', trace_id: request.trace_id ?? null, job_id: request.job_id ?? null });
         } else {
-          if (clearLine && !text.startsWith('\x15')) {
-            term.write('\x15');
-          }
-          const payload = submit ? `${text}\r` : text;
-          term.write(payload);
+          const injectedClearLine = clearLine && !text.startsWith('\x15');
+          writeInteractiveInput(term, text, { clearLine: injectedClearLine, submit });
           const ptyWriteAt = utcStamp();
           const sentDb = openTransportDb();
           sentDb.prepare(`
@@ -899,13 +905,13 @@ async function runInteractiveCopilot(options = {}) {
           lastInputJobId = request.job_id ?? null;
           lastInjectedAt = ptyWriteAt;
           lastInjectedSubmit = submit;
-          lastInjectedClearLine = clearLine;
+          lastInjectedClearLine = injectedClearLine;
           writeSessionState();
           logEvent('node_pty_interactive_injection_sent', {
             input_id: request.input_id,
-            byte_count: Buffer.byteLength(payload),
+            byte_count: Buffer.byteLength(text, 'utf8') + (injectedClearLine ? 1 : 0) + (submit ? 1 : 0),
             submit,
-            clear_line: clearLine,
+            clear_line: injectedClearLine,
             client_sent_at: request.client_sent_at ?? null,
             backend_accepted_at: request.backend_accepted_at ?? request.backend_queued_at ?? null,
             host_runner_received_at: request.host_runner_received_at ?? null,

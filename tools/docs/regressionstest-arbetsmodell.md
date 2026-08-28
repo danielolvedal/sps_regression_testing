@@ -124,6 +124,47 @@ Ett UI-regressionstest bör utöver vanliga teststeg också innehålla:
 
 Där sparas den praktiska kunskap som gör framtida körningar snabbare.
 
+## Körbarhet från Copilot-admin frontend
+
+Ett regressionstest visas under Copilot-admins menyval `Regressioner` när backendens `GET /api/regression/tests` kan läsa det från `testing\regression_test\regression-test-catalog.md`. Frontend ska alltså inte söka fritt efter markdownfiler; katalogen är det körbara API-kontraktet.
+
+För att ett nytt test ska vara körbart från Copilot-admin frontend ska följande vara uppfyllt:
+
+1. Testfilen ska ligga direkt under `testing\regression_test`.
+2. Testfilen ska börja med `# Regressionstest - ...`.
+3. Testfilen ska innehålla sektionerna `## Test-ID`, `## Catalog Key`, `## Summary`, `## Dependencies` och `## Typ`.
+4. `Test-ID` ska vara stabilt kebab-case och unikt.
+5. `Catalog Key` ska vara en kort stabil nyckel, till exempel `H`, och ska matcha katalogposten exakt.
+6. `Summary` i testfilen och katalogen ska vara identisk efter whitespace-normalisering.
+7. `Dependencies` ska lista beroenden med catalog key, eller `- none` när testet är fristående.
+8. `testing\regression_test\regression-test-catalog.md` ska ha en tabellrad med samma `Catalog Key`, `Test ID`, `Summary` och filväg.
+9. `testing\regression_test\regression-test-dependencies.mmd` ska ha en nod för testet och pilar för eventuella beroenden.
+10. `dokument_index\index.md` ska referera till testfilen eftersom den är ett beständigt dokument.
+11. `testing\regression_test\README.md` bör lista testet så människor hittar det utanför frontend.
+
+Backend normaliserar katalograden till ett testobjekt med bland annat `catalog_key`, `test_id`, `summary`, `file_path`, `test_type`, `dependency_keys`, `dependency_test_ids` och `dependency_mode`. Frontend använder `test_id` när användaren klickar `Kör valt test`, men visar även `catalog_key` och `file_path` så att körbarheten går att felsöka.
+
+Efter att ett test har lagts till eller ändrats ska agenten köra:
+
+```powershell
+.\runtime\test-regression-dependencies.ps1
+.\runtime\test-document-index.ps1
+```
+
+Om testet ändå inte syns i Copilot-admin frontend ska felsökningen börja med att öppna den kanoniska modulen via backendens versionsstyrda route, till exempel:
+
+```powershell
+Start-Process 'http://127.0.0.1:8765/regressioner'
+```
+
+Backend ska då redirecta till senaste `/regressioner/<version>`. Kontrollera därefter katalog-API:t:
+
+```powershell
+Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/regression/tests'
+```
+
+Om API:t visar testet men webben inte gör det ska adminfrontendens browserflik hårduppdateras. Om API:t inte visar testet kör backend sannolikt mot fel repository, gammal process eller gammal container och adminstacken ska startas om via `.\stop_tool.ps1` följt av `.\start_tool.ps1`.
+
 ## Synkregel för namngivna tester
 
 När ett namngivet regressionstest skapas, tas bort, byter namn, får nytt `Catalog Key`, ny sammanfattning eller nya beroenden ska agenten uppdatera:

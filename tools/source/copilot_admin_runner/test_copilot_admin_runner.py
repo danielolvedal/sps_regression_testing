@@ -105,6 +105,28 @@ class CopilotAdminRunnerTests(unittest.TestCase):
             self.assertEqual("sqlite", result["state_storage"])
             self.assertEqual("sqlite state", result["last_output_tail"])
 
+    def test_start_admin_session_restarts_existing_copilot_by_default(self) -> None:
+        with (
+            mock.patch.object(runner, "copilot_session_status", return_value={"running": True, "status": "running"}),
+            mock.patch.object(runner, "start_copilot_session", return_value={"status": "started"}) as start_copilot,
+            mock.patch.object(runner, "start_browser_session", return_value={"status": "started"}),
+            mock.patch.object(runner, "status_payload", return_value={"status": "ok"}),
+            mock.patch.object(runner, "log_event"),
+        ):
+            result = runner.start_admin_session({})
+
+        self.assertEqual("started", result["status"])
+        start_copilot.assert_called_once()
+        self.assertTrue(start_copilot.call_args.kwargs["restart_existing"])
+
+    def test_handle_request_copilot_start_restarts_existing_by_default(self) -> None:
+        with mock.patch.object(runner, "start_copilot_session", return_value={"status": "started"}) as start_copilot:
+            payload = runner.handle_request({"action": "copilot-start"}, "direct")
+
+        self.assertEqual("started", payload["status"])
+        start_copilot.assert_called_once()
+        self.assertTrue(start_copilot.call_args.kwargs["restart_existing"])
+
     def test_stop_browser_session_returns_not_owned_for_untracked_running_browser(self) -> None:
         with (
             mock.patch.object(runner, "browser_session_status", return_value={"running": True, "status": "running", "port": 9222}),
@@ -118,3 +140,18 @@ class CopilotAdminRunnerTests(unittest.TestCase):
 
         self.assertEqual("not_owned", result["status"])
         self.assertIn("No owned browser processId was recorded", result["note"])
+
+    def test_stop_browser_session_short_circuits_for_already_stopped_state_without_pid(self) -> None:
+        state = {"status": "stopped", "port": 9322, "profileDir": "C:\\temp\\browser-profile-9322"}
+        with (
+            mock.patch.object(runner, "browser_session_status", side_effect=[{"running": False, "status": "not_running", "port": 9322}, {"running": False, "status": "not_running", "port": 9322}]),
+            mock.patch.object(runner, "read_json_file", return_value=state),
+            mock.patch.object(runner, "resolve_browser_process_id", side_effect=AssertionError("should not resolve owner")),
+            mock.patch.object(runner, "stop_process", side_effect=AssertionError("should not stop process")),
+            mock.patch.object(Path, "mkdir"),
+            mock.patch.object(Path, "write_text"),
+        ):
+            result = runner.stop_browser_session(port=9322, timeout_seconds=0)
+
+        self.assertEqual("stopped", result["status"])
+        self.assertIn("already stopped", result["note"])
