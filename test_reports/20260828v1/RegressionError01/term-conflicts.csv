@@ -1,0 +1,9 @@
+concept,observedVariants,locations,recommendedCanonicalTerm
+Customer Service Center,Kundtjänstportalen; CustomerService,Navigation/page title uses Swedish title and URL compound without space,Customer Service Center
+Contract,Kontrakt; contract; Agreement-like contract labels,Menu groups/items and Admin mixed case/Swedish labels,Contract
+Short-term parking contract,STP-tjänster; korttidsavtal; engångsparkering; Receptionsservice kontrakt,STP menu group mixes acronym with Swedish terms,Short-term parking contract
+DS / Car park / Garage,DS; garage; Garage; CarPark; Car park,"Menus and key settings mix DS, garage and CarPark spelling","DS / Car park, or Garage only for actual garage object"
+VRM,VRMer; VRM-pool,Swedish plural suffix and internal pool labels in menu,VRM
+Queue,Köhantering; köande; ködeltagare; kö för garage; Queue Tick Tack Toe,Queue concept has Swedish labels and an English admin label,Queue / Queue member / Offer
+Product template,Produktmall; Product Template List; Paketmallar; Package,Product/package labels mix Swedish and English,Product template / Package template
+Property owner / Landlord / Operator,Fastighetsägare; Hyresvärd; Operatör; Property owner; Landlord; Operator,Swedish and English role names coexist,Property owner / Landlord / Operator

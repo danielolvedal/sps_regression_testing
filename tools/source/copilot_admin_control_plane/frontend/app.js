@@ -164,6 +164,12 @@ function setActiveView(view, options = {}) {
   }
   if (options.log) logEvent("page_view", { view: nextView, route_version: ROUTE_VERSION });
   if (nextView === "ai-console") ensureCopilotSession();
+  if (nextView === "rapporter") refreshReportsView();
+}
+
+async function refreshReportsView() {
+  await loadReports();
+  if (state.activeView === "rapporter") renderReports();
 }
 
 function bindModeControls() {

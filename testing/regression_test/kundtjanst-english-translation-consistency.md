@@ -211,9 +211,16 @@ Dokumentera minst:
 
 ## Senast verifierad körning
 
-- **Datum:** Ej verifierad ännu
-- **Körläge:** Learning Mode
-- **Status:** Testdefinition skapad. Första skarpa Regression Mode-körning återstår.
+- **Datum:** 2026-08-28
+- **Körläge:** Regression Mode
+- **Status:** Underkänt. Körningen granskade 12 menygrupper, 115 menyval och 115 öppnade sidor. Svenska och blandade UI-texter reproducerades i tre körningar utan blockerade sidor.
+- **Rapport:** `test_reports\20260828v1\summary.md`
+
+## Återanvändbara körlärdomar
+
+- Kör live-inventeringen till `tmp`, inte till `raw_data`, när syftet är Regression Mode-verifiering och inte ny rådatainsamling.
+- Inventeringsskriptet lämnar browsern på sista öppnade sida. För reproduktion 2 och 3 ska Kundtjänst-startsidan öppnas igen innan `Invoke-KundtjanstMenuInventory.ps1` startas, annars kan skriptet sakna matchande `CustomerService`-target.
+- Vid rapportering av detta test ska fullständig findings-data sparas som artefakt i felrapporten, eftersom antalet oöversatta eller blandade UI-texter kan vara mycket stort.
 
 ## Relaterade dokument
 
