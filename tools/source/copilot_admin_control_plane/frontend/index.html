@@ -80,36 +80,45 @@
               <p>Startpunkten för SPS-manualer där användarstöd, guider och arbetsinstruktioner samlas i en strukturerad och lättnavigerad vy.</p>
             </div>
             <div class="manuals-hero-note">
-              <span class="pill">Kommande innehåll</span>
-              <p>Den här vyn förbereder frontend för ett samlat manualbibliotek utan att påverka Copilot-adminflödena.</p>
+              <span id="manuals-count-pill" class="pill" data-testid="manuals-count-pill">0 manualer</span>
+              <p id="manuals-summary" data-testid="manuals-summary">Läser in manualbiblioteket från repositoryt.</p>
             </div>
           </div>
           <section class="panel">
             <div class="panel-header">
-              <h3>Planerade manualområden</h3>
-              <p>Börja här när SPS-manualer ska grupperas efter målgrupp, systemyta och arbetssätt.</p>
+              <h3>Manualområden</h3>
+              <p>Börja här när du vill öppna publicerade manualer per målgrupp och läsa dem direkt i frontend.</p>
             </div>
           </section>
           <div class="cards manuals-grid" data-testid="manuals-sections">
             <article class="card manuals-card" data-testid="manuals-section-csc">
               <span>Kundtjänst / CSC</span>
-              <strong>Operativt stöd</strong>
-              <small>Manualer för kundtjänstflöden, ärendehantering, kontrakt och vanliga arbetsmoment i CSC.</small>
+              <strong id="manuals-section-csc-count">0 manualer</strong>
+              <small id="manuals-section-csc-summary">Manualer för kundtjänstflöden, ärendehantering, kontrakt och vanliga arbetsmoment i CSC.</small>
             </article>
             <article class="card manuals-card" data-testid="manuals-section-serviceportal">
               <span>Serviceportalen</span>
-              <strong>Portalguider</strong>
-              <small>Steg-för-steg-material för navigation, beställningar, självservice och rollspecifika arbetssätt i portalen.</small>
+              <strong id="manuals-section-serviceportal-count">0 manualer</strong>
+              <small id="manuals-section-serviceportal-summary">Steg-för-steg-material för navigation, beställningar, självservice och rollspecifika arbetssätt i portalen.</small>
             </article>
             <article class="card manuals-card" data-testid="manuals-section-clients">
               <span>Klientmanualer</span>
-              <strong>Användarstöd</strong>
-              <small>Samlad dokumentation för klientnära processer, användarresor och instruktioner riktade till slutanvändare.</small>
+              <strong id="manuals-section-clients-count">0 manualer</strong>
+              <small id="manuals-section-clients-summary">Samlad dokumentation för klientnära processer, användarresor och instruktioner riktade till slutanvändare.</small>
             </article>
             <article class="card manuals-card" data-testid="manuals-section-guides">
               <span>Arbetsinstruktioner / Guider</span>
-              <strong>Återanvändbara checklistor</strong>
-              <small>Praktiska guider, onboardingstöd och standardiserade arbetsinstruktioner för återkommande SPS-uppgifter.</small>
+              <strong id="manuals-section-guides-count">0 index/manualer</strong>
+              <small id="manuals-section-guides-summary">Praktiska guider, biblioteksläsordningar och återanvändbara introduktioner till manualpaketen.</small>
+            </article>
+          </div>
+          <div class="toolbar">
+            <input id="manual-filter" data-testid="manual-filter" type="search" placeholder="Filtrera manualer" />
+          </div>
+          <div class="split">
+            <div id="manual-list" class="list" data-testid="manual-list"></div>
+            <article id="manual-reader" class="markdown-reader" data-testid="manual-reader">
+              <p>Välj en manual.</p>
             </article>
           </div>
         </section>

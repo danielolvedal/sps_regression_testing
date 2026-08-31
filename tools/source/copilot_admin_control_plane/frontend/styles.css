@@ -189,10 +189,17 @@ textarea {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(7, 17, 31, 0.32));
 }
 .manuals-card strong {
+  font-size: 1.15rem;
+}
+.manuals-card strong {
   line-height: 1.2;
 }
 .manuals-card small {
   display: block;
+}
+.active-item {
+  border-color: rgba(105, 210, 255, 0.45);
+  box-shadow: 0 0 0 1px rgba(105, 210, 255, 0.18) inset;
 }
 .card {
   min-height: 150px;

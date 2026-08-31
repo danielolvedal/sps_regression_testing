@@ -32,6 +32,7 @@ FRONTEND_DIR = Path(
 ).resolve()
 TEST_DIR = REPO_ROOT / "testing" / "regression_test"
 REPORTS_DIR = REPO_ROOT / "test_reports"
+MANUALS_DIR = REPO_ROOT / "manuals"
 CATALOG_PATH = TEST_DIR / "regression-test-catalog.md"
 MERMAID_PATH = TEST_DIR / "regression-test-dependencies.mmd"
 NODE_PTY_STATE_DIR = Path(
@@ -73,6 +74,11 @@ ACTIVE_STATUSES = {"queued", "running", "user_input_required"}
 AI_CONSOLE_STANDARD_INSTRUCTION = (
     "Om instruktionen är oklar eller otydlig ställ klargörande frågor, "
     "om instruktionen påverkar befintliga tester måste användaren informeras om konsekvenserna av den ändringen."
+)
+MANUAL_SECTION_DEFS = (
+    ("csc", "Kundtjänst / CSC", MANUALS_DIR / "csc_user_manuals"),
+    ("serviceportal", "Serviceportalen", MANUALS_DIR / "user_manuals"),
+    ("clients", "Klientmanualer", MANUALS_DIR / "client_manuals"),
 )
 
 
@@ -181,6 +187,14 @@ def report_id_for(path: Path) -> str:
     return token
 
 
+def title_from_markdown(content: str, fallback: str) -> str:
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip() or fallback
+    return fallback
+
+
 def path_for_report_id(report_id: str) -> Path:
     try:
         padded = report_id + "=" * (-len(report_id) % 4)
@@ -192,6 +206,20 @@ def path_for_report_id(report_id: str) -> Path:
     path = ensure_child(REPORTS_DIR, REPO_ROOT / rel)
     if not path.is_file() or path.suffix.lower() != ".md":
         raise ApiError(404, "Report not found.")
+    return path
+
+
+def path_for_manual_id(manual_id: str) -> Path:
+    try:
+        padded = manual_id + "=" * (-len(manual_id) % 4)
+        rel = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except Exception as exc:
+        raise ApiError(400, "Invalid manual_id.") from exc
+    if Path(rel).is_absolute() or ".." in Path(rel).parts:
+        raise ApiError(400, "Invalid manual path.")
+    path = ensure_child(MANUALS_DIR, REPO_ROOT / rel)
+    if not path.is_file() or path.suffix.lower() != ".md":
+        raise ApiError(404, "Manual not found.")
     return path
 
 
@@ -395,6 +423,69 @@ class ControlPlaneBackend:
         return {
             "report_id": report_id_for(path),
             "path": rel_path(path),
+            "content_type": "text/markdown; charset=utf-8",
+            "markdown": content,
+            "bytes": len(content.encode("utf-8")),
+        }
+
+    def list_manuals(self) -> dict[str, Any]:
+        section_items: list[dict[str, Any]] = []
+        section_lookup: dict[str, dict[str, Any]] = {}
+        manuals: list[dict[str, Any]] = []
+        for key, label, directory in MANUAL_SECTION_DEFS:
+            entry = {
+                "section_key": key,
+                "section_label": label,
+                "directory": rel_path(directory),
+                "available": directory.is_dir(),
+                "count": 0,
+            }
+            section_items.append(entry)
+            section_lookup[key] = entry
+            if not directory.is_dir():
+                continue
+            for path in directory.rglob("*.md"):
+                if any(part == "node_modules" for part in path.parts):
+                    continue
+                safe = ensure_child(directory, path)
+                stat = safe.stat()
+                content = safe.read_text(encoding="utf-8")
+                section_lookup[key]["count"] += 1
+                manuals.append(
+                    {
+                        "manual_id": report_id_for(safe),
+                        "path": rel_path(safe),
+                        "name": safe.name,
+                        "title": title_from_markdown(content, safe.stem),
+                        "section_key": key,
+                        "section_label": label,
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z"),
+                        "bytes": stat.st_size,
+                    }
+                )
+        order = {key: index for index, (key, _, _) in enumerate(MANUAL_SECTION_DEFS)}
+        manuals.sort(key=lambda item: (order.get(item["section_key"], 999), item["path"].casefold()))
+        return {
+            "count": len(manuals),
+            "sections": section_items,
+            "manuals": manuals,
+        }
+
+    def get_manual(self, manual_id: str) -> dict[str, Any]:
+        path = path_for_manual_id(manual_id)
+        content = path.read_text(encoding="utf-8")
+        section_key = next(
+            (key for key, _label, directory in MANUAL_SECTION_DEFS if directory in path.resolve().parents),
+            "unknown",
+        )
+        section_label = next((label for key, label, _directory in MANUAL_SECTION_DEFS if key == section_key), section_key)
+        return {
+            "manual_id": report_id_for(path),
+            "path": rel_path(path),
+            "name": path.name,
+            "title": title_from_markdown(content, path.stem),
+            "section_key": section_key,
+            "section_label": section_label,
             "content_type": "text/markdown; charset=utf-8",
             "markdown": content,
             "bytes": len(content.encode("utf-8")),
@@ -1218,6 +1309,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, self.app.list_reports())
             elif path.startswith("/api/reports/"):
                 self.send_json(200, self.app.get_report(unquote(path.removeprefix("/api/reports/"))))
+            elif path == "/api/manuals":
+                self.send_json(200, self.app.list_manuals())
+            elif path.startswith("/api/manuals/"):
+                self.send_json(200, self.app.get_manual(unquote(path.removeprefix("/api/manuals/"))))
             elif path == "/api/jobs":
                 self.send_json(200, self.app.list_jobs(parse_qs(parsed.query)))
             elif path.startswith("/api/jobs/"):

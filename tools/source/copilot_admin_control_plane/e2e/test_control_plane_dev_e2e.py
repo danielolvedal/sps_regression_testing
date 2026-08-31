@@ -106,6 +106,8 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         js = (FRONTEND_DIR / "app.js").read_text(encoding="utf-8")
         for hook in [
             'data-testid="start-session-button"',
+            'data-testid="manual-list"',
+            'data-testid="manual-reader"',
             'data-testid="view-ai-console"',
             'data-testid="ai-console-output"',
             'data-testid="ai-console-input"',
@@ -123,6 +125,7 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
             "/api/jobs",
             "/api/ai-console",
             "/api/ai-console/input",
+            "/api/manuals",
             "/api/regression/mermaid",
             "/api/frontend/events",
         ]:
@@ -189,6 +192,13 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         status, report = self.request("GET", f"/api/reports/{reports['reports'][0]['report_id']}")
         self.assertEqual(status, 200)
         self.assertIn("markdown", report)
+
+        status, manuals = self.request("GET", "/api/manuals")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(manuals["count"], 1)
+        status, manual = self.request("GET", f"/api/manuals/{manuals['manuals'][0]['manual_id']}")
+        self.assertEqual(status, 200)
+        self.assertIn("markdown", manual)
 
         trace_id = "e2e-log-correlation"
         self.request("POST", "/api/frontend/events", {"event": "button_clicked", "trace_id": trace_id, "user_action": "run_selected_regression"}, trace_id=trace_id)

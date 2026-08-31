@@ -152,6 +152,11 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 
 ### Kundtjänst / CSC
 
+- `manuals\csc_user_manuals\README.md` - Index över CSC-manualpaketet som bygger på syntetisk data och pekar till operativa arbetsmanualer.
+- `manuals\csc_user_manuals\Kundtjänst - kontrakt och avtal.md` - Operativ CSC-manual för att söka, skapa, ändra, prissätta och dokumentera kontrakt.
+- `manuals\csc_user_manuals\Kundtjänst - köer, uppsägning och kundflöden.md` - Operativ CSC-manual för köer, erbjudanden, uppsägning, efterarbete och kundnära kanalflöden.
+- `manuals\csc_user_manuals\Kundtjänst - anläggningar, produkter och access.md` - Operativ CSC-manual för DS, garage, produkter, paket, VRM, nycklar och access.
+- `manuals\csc_user_manuals\Kundtjänst - rapporter, loggar och administration.md` - Operativ CSC-manual för rapporter, audit, drift, register och tvärgående regler.
 - `manuals\csc_user_manuals\Kundtjänst - funktioner.md` - Fullständig meny-för-meny-genomgång av Kundtjänstportalen med syfte, UI-element och stage-status.
 
 ### Serviceportalen / slutanvändare

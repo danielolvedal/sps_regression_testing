@@ -130,6 +130,7 @@ Ett developer-facing fel i `test_reports` får skapas först när minst 10 olika
 - Verifierad Regression Mode-observation 2026-08-27: efter `Skapa kontrakt` ändrades URL:en från `/garage/checkout/{saleId}` till `/garage/checkout`, men det dolda `SaleId`-fältet behöll samma GUID och checkoutdata låg kvar.
 - Verifierad Regression Mode-observation 2026-08-27: samma create-fel kan reproduceras genom att stänga `OK`-dialogen, säkerställa att `TermsAndConditions` fortsatt är ikryssad och klicka `Skapa kontrakt` igen.
 - Learning Mode-förtydligande 2026-08-28: ett fel på ett enskilt migrerat DS är inte längre tillräckligt för att skapa regressionsrapport. `G` måste pröva minst 10 olika migrerade DS-kandidater genom hela `B -> G`-kedjan innan ett återkommande checkout-/create-fel betraktas som verifierad regression.
+- Regression Mode-observation 2026-08-28: `G` kunde inte starta eftersom `B` inte nådde checkout för 10 prövade migrerade DS-kandidater. Akka-kandidaterna `900627`, `900629`, `900631`, `900636` och `900640` gav inga Google-geocode-träffar från DS-namnet. `900624`, `900648`, `900104` och `47184` gav web-stage garageträffar men details-fetch redirectade till `/account/denied`. `900782` geokodades men gav ingen exakt serviceportalträff. Detta ska behandlas som blockerat/otillräckligt underlag för `G`, inte som verifierat G-fel, eftersom checkout aldrig nåddes.
 
 ## Felutfall
 
@@ -193,6 +194,18 @@ Dokumentera minst:
 - **Skapa-kontrakt-observation:** `Skapa kontrakt` reproducerades tre gånger med samma blockerande dialog: `Fel format` / `CustomerModel.PhoneNumber har ett felaktigt värde`
 - **Rapportstatus:** historisk developer-facing defect report finns under `test_reports\20260827v1\RegressionError01\report.md`, men rapporten uppfyller inte längre gällande 10-DS-krav och ska inte användas som verifierat regressionsfel utan omprövning.
 - **Giltighet efter ändrad DS-regel:** Den tidigare rapporten bygger på samma DS/checkout och uppfyller inte längre kravet på minst 10 olika migrerade DS-kandidater. Den ska behandlas som historisk observation tills felet har omprövats enligt den nya DS-omprövningsregeln.
+
+## Senaste Regression Mode-försök
+
+- **Datum:** 2026-08-28
+- **Körläge:** Regression Mode
+- **Status:** Blockerat före `G`
+- **Orsak:** Beroendet `B` kunde inte skapa en checkout för någon av 10 prövade migrerade DS-kandidater.
+- **Kandidatlogg:** `tmp\regression-g-20260828-endpoint-candidate-log.json`
+- **Prövade migrerade DS:** `900624`, `900627`, `900629`, `900631`, `900636`, `900640`, `900782`, `900648`, `900104`, `47184`
+- **Akka-kandidater:** `900624`, `900627`, `900629`, `900631`, `900636`, `900640`, `900782`, `900648`
+- **Observerade blockerare:** fem Akka-kandidater gav `ZERO_RESULTS` i Google-geocode från DS-namnet, en Akka-kandidat gav ingen exakt serviceportalträff, och fyra kandidater gav web-stage garageträff men details-sidan redirectade till `/account/denied`.
+- **Rapporteringsbeslut:** Ingen ny `test_reports`-rapport skapades, eftersom `G` varken passerade eller nådde ett verifierat G-fel enligt Regression Mode-reglerna.
 
 ## Relaterade dokument
 

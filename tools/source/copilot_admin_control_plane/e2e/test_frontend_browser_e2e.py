@@ -375,6 +375,16 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
   await waitFor(() => e("mode-label").textContent.includes("testing"), "Mode controls did not update mode label.");
   assert(q("status-diode").className.includes("status-yellow"), "Running mode job should turn status diode yellow.");
 
+  q("nav-manualer").click();
+  await waitFor(() => q("view-manualer").classList.contains("active"), "Manuals view did not open.");
+  await waitFor(() => document.querySelector("[data-manual-id]"), "Manual list did not render.");
+  assert(q("manuals-count-pill").textContent.includes("manualer"), "Manual hero should summarize available manuals.");
+  const openManualButton = document.querySelector("[data-manual-id]");
+  assert(openManualButton, `Open-manual button missing; manual HTML: ${document.getElementById("manual-list").innerHTML}`);
+  if (openManualButton) openManualButton.click();
+  await waitFor(() => q("manual-reader").innerHTML.includes("<h1>"), "Manual reader did not render Markdown.");
+  assert(q("manual-reader").textContent.includes("Kundtjänst") || q("manual-reader").textContent.includes("CSC"), "Manual reader should show CSC manual content from repository.");
+
   q("nav-regressioner").click();
   await waitFor(() => q("view-regressioner").classList.contains("active"), "Regression view did not open.");
   assert(document.querySelectorAll("[data-testid='regression-item']").length >= 1, "Regression catalog did not render.");

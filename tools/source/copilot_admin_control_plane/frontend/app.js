@@ -45,6 +45,9 @@ const state = {
   mode: "unknown",
   copilotWindowVisible: true,
   status: null,
+  manuals: [],
+  manualSections: [],
+  activeManualId: "",
   tests: [],
   reports: [],
   jobs: [],
@@ -119,6 +122,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindNavigation();
   bindModeControls();
   bindRegressionControls();
+  bindManualFilter();
   bindMermaidControls();
   bindAiConsole();
   bindReportFilter();
@@ -164,7 +168,23 @@ function setActiveView(view, options = {}) {
   }
   if (options.log) logEvent("page_view", { view: nextView, route_version: ROUTE_VERSION });
   if (nextView === "ai-console") ensureCopilotSession();
+  if (nextView === "manualer") refreshManualsView();
   if (nextView === "rapporter") refreshReportsView();
+}
+
+async function refreshManualsView() {
+  await loadManuals();
+  renderManuals();
+  const visibleManuals = filteredManuals();
+  if (!visibleManuals.length) {
+    state.activeManualId = "";
+    $("#manual-reader").innerHTML = "<p>Inga manualer matchar filtret.</p>";
+    return;
+  }
+  const stillVisible = visibleManuals.some((manual) => (manual.manual_id || manual.id) === state.activeManualId);
+  if (!stillVisible) {
+    await openManual(visibleManuals[0].manual_id || visibleManuals[0].id, { skipRenderList: true });
+  }
 }
 
 async function refreshReportsView() {
@@ -242,6 +262,21 @@ function bindMermaidControls() {
   });
 }
 
+function bindManualFilter() {
+  $("#manual-filter").addEventListener("input", async () => {
+    renderManuals();
+    const visibleManuals = filteredManuals();
+    if (!visibleManuals.length) {
+      state.activeManualId = "";
+      $("#manual-reader").innerHTML = "<p>Inga manualer matchar filtret.</p>";
+      return;
+    }
+    if (!visibleManuals.some((manual) => (manual.manual_id || manual.id) === state.activeManualId)) {
+      await openManual(visibleManuals[0].manual_id || visibleManuals[0].id, { skipRenderList: true });
+    }
+  });
+}
+
 function bindReportFilter() {
   $("#report-filter").addEventListener("input", renderReports);
 }
@@ -280,6 +315,7 @@ function bindStartupControls() {
 async function refreshAll() {
   await Promise.allSettled([
     refreshStatusAndJobs(),
+    loadManuals(),
     loadTests(),
     loadMermaid(),
     loadReports(),
@@ -318,6 +354,12 @@ async function refreshStatusAndJobs() {
 async function loadTests() {
   const payload = await apiGet("/api/regression/tests", mockTests);
   state.tests = normalizeArray(payload.tests || payload);
+}
+
+async function loadManuals() {
+  const payload = await apiGet("/api/manuals", mockManuals);
+  state.manuals = normalizeArray(payload.manuals || payload);
+  state.manualSections = normalizeArray(payload.sections || []);
 }
 
 async function loadMermaid() {
@@ -495,6 +537,7 @@ async function apiRequest(path, options, fallbackFactory) {
 function renderAll() {
   renderStatus();
   renderDashboard();
+  renderManuals();
   renderAiConsole();
   renderTests();
   renderMermaidGraph();
@@ -534,6 +577,72 @@ function renderDashboard() {
   const failed = state.jobs.find((job) => job.status === "failed");
   $("#card-error").textContent = failed ? failed.title || failed.job_id || failed.id : "Inget verifierat fel";
   $("#card-error-tail").textContent = failed?.output_tail || "Fel visas här när backend rapporterar dem.";
+}
+
+function filteredManuals() {
+  const filter = $("#manual-filter")?.value.trim().toLowerCase() || "";
+  return state.manuals.filter((manual) => `${manual.title || ""} ${manual.name || ""} ${manual.path || ""} ${manual.section_label || ""}`.toLowerCase().includes(filter));
+}
+
+function renderManuals() {
+  const manuals = filteredManuals();
+  const sectionCounts = new Map(state.manualSections.map((section) => [section.section_key, section.count || 0]));
+  const sectionAvailability = new Map(state.manualSections.map((section) => [section.section_key, Boolean(section.available)]));
+  const guideCount = state.manuals.filter((manual) => String(manual.name || "").toLowerCase() === "readme.md").length;
+  const countPill = $("#manuals-count-pill");
+  if (countPill) countPill.textContent = `${manuals.length} av ${state.manuals.length} manualer`;
+  const summary = $("#manuals-summary");
+  if (summary) {
+    summary.textContent = state.manuals.length
+      ? "Manualbiblioteket läses direkt från repositoryt och öppnas som Markdown i frontend."
+      : "Inga publicerade manualer hittades ännu under manuals-katalogen.";
+  }
+  setManualSectionCard("csc", sectionCounts.get("csc") || 0, "Publicerade CSC-manualer och bibliotekets läsordning.", sectionAvailability.get("csc"));
+  setManualSectionCard("serviceportal", sectionCounts.get("serviceportal") || 0, "Serviceportalsmanualer visas här när de publiceras.", sectionAvailability.get("serviceportal"));
+  setManualSectionCard("clients", sectionCounts.get("clients") || 0, "Klient- och företagsmanualer visas här när de publiceras.", sectionAvailability.get("clients"));
+  setManualSectionCard("guides", guideCount, "README- och indexdokument som guidar användaren till rätt manualpaket.", guideCount > 0);
+  $("#manual-list").innerHTML = manuals.map((manual) => {
+    const manualId = manual.manual_id || manual.id;
+    const active = manualId === state.activeManualId;
+    return `
+    <article class="item ${active ? "active-item" : ""}" data-testid="manual-item">
+      <h3>${escapeHtml(manual.title || manual.name || manualId)}</h3>
+      <div class="item-meta">${escapeHtml(manual.section_label || "")}</div>
+      <div class="item-meta">${escapeHtml(manual.path || "")}</div>
+      <div class="item-actions"><button data-testid="open-manual-button" data-manual-id="${escapeAttr(manualId)}">Öppna manual</button></div>
+    </article>
+  `;
+  }).join("") || `
+    <article class="item warning" data-testid="manuals-empty-state">
+      <h3>Inga manualer matchar filtret</h3>
+      <p>Justera filtertexten eller publicera fler Markdown-manualer under <code>manuals</code>.</p>
+    </article>
+  `;
+  $$("[data-manual-id]").forEach((button) => {
+    button.addEventListener("click", () => openManual(button.dataset.manualId));
+  });
+}
+
+function setManualSectionCard(sectionKey, count, summaryText, available) {
+  const countElement = $(`#manuals-section-${sectionKey}-count`);
+  const summaryElement = $(`#manuals-section-${sectionKey}-summary`);
+  if (countElement) {
+    const noun = sectionKey === "guides" ? "index/manualer" : "manualer";
+    countElement.textContent = `${count} ${noun}`;
+  }
+  if (summaryElement) {
+    summaryElement.textContent = available
+      ? summaryText
+      : "Ingen katalog eller inga publicerade manualer hittades ännu för detta område.";
+  }
+}
+
+async function openManual(manualId, options = {}) {
+  logEvent("button_clicked", { button_id: "open-manual-button", user_action: "open_manual", manual_id: manualId });
+  const manual = await apiGet(`/api/manuals/${encodeURIComponent(manualId)}`, () => mockManual(manualId));
+  state.activeManualId = manual.manual_id || manual.id || manualId;
+  $("#manual-reader").innerHTML = markdownToHtml(manual.markdown || manual.content || "Manualen saknar innehåll.");
+  if (!options.skipRenderList) renderManuals();
 }
 
 function renderAiConsole() {
@@ -1187,6 +1296,26 @@ function mockTests() {
   return { tests: [] };
 }
 
+function mockManuals() {
+  return {
+    sections: [
+      { section_key: "csc", section_label: "Kundtjänst / CSC", count: 1, available: true },
+      { section_key: "serviceportal", section_label: "Serviceportalen", count: 0, available: false },
+      { section_key: "clients", section_label: "Klientmanualer", count: 0, available: false },
+    ],
+    manuals: [
+      {
+        manual_id: "mock-manual",
+        title: "CSC-manual i mockläge",
+        name: "README.md",
+        path: "manuals\\csc_user_manuals\\README.md",
+        section_key: "csc",
+        section_label: "Kundtjänst / CSC",
+      },
+    ],
+  };
+}
+
 function mockMermaid() {
   return { mermaid: "graph TD\nA[Kontraktssökning] --> B[Migrerat DS]\nB --> C[Checkout]\nA --> D[Ej migrerat DS]" };
 }
@@ -1213,6 +1342,10 @@ function mockAiConsole() {
 
 function mockReport(reportId) {
   return { id: reportId, markdown: `# ${reportId}\n\n**Status:** demo\n\n- Backend är inte ansluten.\n- När backend finns hämtas rapporten från \`/api/reports/${reportId}\`.` };
+}
+
+function mockManual(manualId) {
+  return { id: manualId, markdown: `# ${manualId}\n\n**Status:** demo\n\n- Backend är inte ansluten.\n- När backend finns hämtas manualen från \`/api/manuals/${manualId}\`.` };
 }
 
 function mockJobs() {

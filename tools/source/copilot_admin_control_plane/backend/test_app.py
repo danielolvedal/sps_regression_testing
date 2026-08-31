@@ -118,6 +118,15 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("markdown", report)
 
+        status, manuals = self.request("GET", "/api/manuals")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(manuals["count"], 1)
+        self.assertTrue(any(item["section_key"] == "csc" for item in manuals["sections"]))
+        status, manual = self.request("GET", f"/api/manuals/{manuals['manuals'][0]['manual_id']}")
+        self.assertEqual(status, 200)
+        self.assertIn("markdown", manual)
+        self.assertIn("manuals\\", manual["path"])
+
     def test_frontend_assets_are_served(self) -> None:
         req = Request(f"http://127.0.0.1:{self.port}/", method="GET")
         with urlopen(req, timeout=5) as response:
@@ -454,6 +463,11 @@ class BackendSmokeTests(unittest.TestCase):
     def test_report_path_traversal_rejected(self) -> None:
         with self.assertRaises(HTTPError) as ctx:
             self.request("GET", "/api/reports/..%5Csecret.md")
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_manual_path_traversal_rejected(self) -> None:
+        with self.assertRaises(HTTPError) as ctx:
+            self.request("GET", "/api/manuals/..%5Csecret.md")
         self.assertEqual(ctx.exception.code, 400)
 
     def test_real_host_runner_status_and_dispatch(self) -> None:
