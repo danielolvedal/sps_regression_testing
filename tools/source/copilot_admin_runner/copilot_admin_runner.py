@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import re
@@ -15,6 +16,16 @@ from multiprocessing.connection import Client, Listener
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+
+from project_session_registry import mark_session_stopped, upsert_session
+from transport_db import (
+    enqueue_input,
+    get_session_state,
+    queue_snapshot,
+    record_trace_event,
+    transport_db_path,
+    upsert_session_state,
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -33,9 +44,14 @@ GRAPH_PATH = TEST_DIR / "regression-test-dependencies.mmd"
 NODE_PTY_STATE_PATH = STATE_DIR / "node-pty-copilot-session.json"
 NODE_PTY_WINDOW_STATE_PATH = STATE_DIR / "node-pty-copilot-window.json"
 NODE_PTY_INPUT_QUEUE_DIR = STATE_DIR / "node-pty-copilot-input-queue"
+TRANSPORT_DB_PATH = transport_db_path(STATE_DIR)
+NODE_PTY_SESSION_ID = os.environ.get("COPILOT_ADMIN_RUNNER_SESSION_ID", "node-pty-copilot")
 BROWSER_STATE_PATH = STATE_DIR / "collaborative-browser-session.json"
 NODE_PTY_START_WINDOW_SCRIPT = (
     RUNTIME_DIR / "windows" / "copilot-admin" / "node-pty" / "start-copilot-admin-node-pty-window.ps1"
+)
+NODE_PTY_START_SESSION_SCRIPT = (
+    RUNTIME_DIR / "windows" / "copilot-admin" / "node-pty" / "start-copilot-admin-node-pty-session.ps1"
 )
 NODE_PTY_SEND_INPUT_SCRIPT = (
     RUNTIME_DIR / "windows" / "copilot-admin" / "node-pty" / "send-copilot-admin-node-pty-input.ps1"
@@ -125,6 +141,26 @@ def log_event(
     }
     with log_path(log_dir).open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    if trace_id or job_id:
+        record_trace_event(
+            TRANSPORT_DB_PATH,
+            component="host-runner",
+            event=event,
+            trace_id=record["trace_id"],
+            job_id=record["job_id"],
+            status=record["status"],
+            details=safe_details,
+        )
+
+
+def write_json_atomically(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_path.replace(path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def request_summary(request: dict[str, Any]) -> dict[str, Any]:
@@ -214,14 +250,17 @@ def list_runtime_scripts() -> list[str]:
 def read_json_file(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError:
-        return {
-            "status": "unreadable",
-            "path": str(path),
-            "error": "Invalid JSON.",
-        }
+    for attempt in range(3):
+        try:
+            return json.loads(path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError:
+            if attempt == 2:
+                return {
+                    "status": "unreadable",
+                    "path": str(path),
+                    "error": "Invalid JSON.",
+                }
+            time.sleep(0.02)
 
 
 def is_process_running(pid: Any) -> bool:
@@ -232,27 +271,23 @@ def is_process_running(pid: Any) -> bool:
     if process_id <= 0:
         return False
     if os.name == "nt":
-        completed = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                f"if (Get-Process -Id {process_id} -ErrorAction SilentlyContinue) {{ exit 0 }} else {{ exit 1 }}",
-            ],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        return completed.returncode == 0
+        process_query_limited_information = 0x1000
+        still_active = 259
+        handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, process_id)
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
     try:
         os.kill(process_id, 0)
-        return True
     except OSError:
         return False
+    return True
 
 
 def stop_process(pid: Any, timeout_seconds: int = 30) -> bool:
@@ -270,7 +305,21 @@ def stop_process(pid: Any, timeout_seconds: int = 30) -> bool:
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                f"Stop-Process -Id {process_id} -Force -ErrorAction SilentlyContinue",
+                rf"""
+$targets = [System.Collections.Generic.List[int]]::new()
+$visited = [System.Collections.Generic.HashSet[int]]::new()
+function Add-Descendants([int]$TargetPid) {{
+    if (-not $visited.Add($TargetPid)) {{ return }}
+    foreach ($child in @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $TargetPid" -ErrorAction SilentlyContinue)) {{
+        Add-Descendants([int]$child.ProcessId)
+    }}
+    $targets.Add($TargetPid)
+}}
+Add-Descendants -TargetPid {process_id}
+foreach ($targetPid in $targets) {{
+    Stop-Process -Id $targetPid -Force -ErrorAction SilentlyContinue
+}}
+""",
             ],
             cwd=str(REPO_ROOT),
             capture_output=True,
@@ -315,6 +364,50 @@ def run_powershell_script(script: Path, args: list[str] | None = None, timeout_s
     }
 
 
+def start_hidden_powershell_session(
+    script: Path,
+    args: list[str] | None = None,
+    env: dict[str, str] | None = None,
+    timeout_seconds: int = 20,
+) -> dict[str, Any]:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    started_at = utc_now()
+    out_path = LOG_DIR / f"hidden-node-pty-session-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')}.out.log"
+    err_path = LOG_DIR / f"hidden-node-pty-session-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')}.err.log"
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(script),
+    ]
+    command.extend(args or [])
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    with out_path.open("a", encoding="utf-8") as stdout_handle, err_path.open("a", encoding="utf-8") as stderr_handle:
+        process = subprocess.Popen(
+            command,
+            cwd=str(REPO_ROOT),
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+            stdin=subprocess.DEVNULL,
+            text=True,
+            env=env,
+            creationflags=creationflags,
+        )
+    return {
+        "exit_code": 0,
+        "stdout": "",
+        "stderr": "",
+        "command": command,
+        "launcher_pid": process.pid,
+        "stdout_path": str(out_path),
+        "stderr_path": str(err_path),
+        "started_at": started_at,
+    }
+
+
 def json_from_stdout(result: dict[str, Any]) -> dict[str, Any] | None:
     stdout = result.get("stdout") or ""
     if not stdout:
@@ -332,38 +425,41 @@ def json_from_stdout(result: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def queue_status(queue_dir: Path = NODE_PTY_INPUT_QUEUE_DIR) -> dict[str, Any]:
-    queue_dir.mkdir(parents=True, exist_ok=True)
-    files = sorted(path.name for path in queue_dir.iterdir() if path.is_file())
-    return {
-        "queue_dir": str(queue_dir),
-        "pending": len([name for name in files if name.endswith(".json")]),
-        "done": len([name for name in files if name.endswith(".json.done")]),
-        "invalid": len([name for name in files if name.endswith(".json.invalid")]),
-        "skipped": len([name for name in files if name.endswith(".json.skipped")]),
-        "latest_files": files[-10:],
-    }
+    snapshot = queue_snapshot(TRANSPORT_DB_PATH)
+    snapshot["queue_dir"] = str(queue_dir)
+    return snapshot
 
 
 def copilot_session_status() -> dict[str, Any]:
-    state = read_json_file(NODE_PTY_STATE_PATH) or {}
-    window_state = read_json_file(NODE_PTY_WINDOW_STATE_PATH) or {}
+    state = get_session_state(TRANSPORT_DB_PATH, session_id=NODE_PTY_SESSION_ID) or {}
     wrapper_pid = state.get("wrapper_pid")
-    launcher_pid = window_state.get("launcher_pid")
+    launcher_pid = state.get("launcher_pid")
     wrapper_running = is_process_running(wrapper_pid)
     launcher_running = is_process_running(launcher_pid)
     status = state.get("status") if wrapper_running else "not_running"
-    visible_window_expected = bool(window_state.get("visible_window_expected", not bool(window_state.get("hidden"))))
+    visible_window_expected = bool(state.get("visible_window_expected", not bool(state.get("hidden"))))
     return {
         "status": status,
         "running": wrapper_running,
         "visible_window_expected": visible_window_expected and (launcher_running or wrapper_running),
-        "startup_model": state.get("startup_model") or window_state.get("startup_model"),
-        "startup_allow_all": bool(state.get("startup_allow_all") or window_state.get("startup_allow_all")),
+        "startup_model_requested": state.get("startup_model_requested") or state.get("startup_model"),
+        "startup_model": state.get("startup_model"),
+        "startup_allow_all_requested": bool(state.get("startup_allow_all_requested") or state.get("startup_allow_all")),
+        "startup_allow_all": bool(state.get("startup_allow_all")),
         "startup_commands_sent": bool(state.get("startup_commands_sent")),
+        "allow_all_verified": bool(state.get("allow_all_verified")),
+        "permissions_hint": state.get("permissions_hint"),
+        "directory_trust_verified": bool(state.get("directory_trust_verified")),
+        "directory_trust_observed_at": state.get("directory_trust_observed_at"),
+        "model_verified": bool(state.get("model_verified")),
+        "current_model": state.get("current_model"),
+        "startup_policy_state": state.get("startup_policy_state"),
         "wrapper_pid": wrapper_pid,
         "launcher_pid": launcher_pid,
-        "state_path": str(NODE_PTY_STATE_PATH),
-        "window_state_path": str(NODE_PTY_WINDOW_STATE_PATH),
+        "state_storage": "sqlite",
+        "state_db_path": str(TRANSPORT_DB_PATH),
+        "state_path": str(TRANSPORT_DB_PATH),
+        "window_state_path": str(TRANSPORT_DB_PATH),
         "updated_at": state.get("updated_at"),
         "started_at": state.get("started_at"),
         "log_path": state.get("log_path") or str(log_path()),
@@ -373,21 +469,23 @@ def copilot_session_status() -> dict[str, Any]:
         "last_output_tail": state.get("last_output_tail", ""),
         "last_injected_text": state.get("last_injected_text", ""),
         "last_injected_at": state.get("last_injected_at"),
-        "input_queue": {**queue_status(), **(state.get("input_queue_status") or {})},
-        "raw_state": state if state.get("status") == "unreadable" else None,
+        "input_queue_db_path": state.get("input_queue_db_path") or str(TRANSPORT_DB_PATH),
+        "input_queue": {**(state.get("input_queue_status") or {}), **queue_status()},
+        "raw_state": None,
     }
 
 
 def start_copilot_session(
-    restart_existing: bool = False,
+    restart_existing: bool = True,
     log_input: bool = False,
-    startup_model: str | None = "gpt-5-mini",
+    startup_model: str | None = "auto",
     allow_all: bool = True,
     hidden_window: bool = False,
 ) -> dict[str, Any]:
+    env = os.environ.copy()
+    env["COPILOT_ADMIN_RUNNER_STATE_DIR"] = str(STATE_DIR)
+    session_key = f"node-pty::{STATE_DIR}"
     args: list[str] = []
-    if restart_existing:
-        args.append("-RestartExisting")
     if log_input:
         args.append("-LogInput")
     if startup_model:
@@ -395,11 +493,101 @@ def start_copilot_session(
     if allow_all:
         args.append("-AllowAll")
     if hidden_window:
-        args.append("-Hidden")
-    env = os.environ.copy()
-    env["COPILOT_ADMIN_RUNNER_STATE_DIR"] = str(STATE_DIR)
-    result = run_powershell_script(NODE_PTY_START_WINDOW_SCRIPT, args, timeout_seconds=45, env=env)
-    payload = json_from_stdout(result) or {}
+        env["COPILOT_ADMIN_PROJECT_SESSION_HIDDEN"] = "1"
+        if restart_existing:
+            stop_copilot_session()
+        else:
+            before = copilot_session_status()
+            if before.get("running") or is_process_running(before.get("launcher_pid")):
+                return {
+                    "status": "failed",
+                    "start_result": {
+                        "status": "already_running",
+                        "state_db_path": str(TRANSPORT_DB_PATH),
+                        "state_path": str(TRANSPORT_DB_PATH),
+                        "window_state_path": str(TRANSPORT_DB_PATH),
+                    },
+                    "stderr": "An existing hidden node-pty Copilot wrapper is already running. Re-run with restart_existing=true.",
+                    "copilot_session": before,
+                }
+        for path in (NODE_PTY_STATE_PATH, NODE_PTY_WINDOW_STATE_PATH, STATE_DIR / "node-pty-copilot-session-output.txt", STATE_DIR / "node-pty-copilot-session-input.txt"):
+            path.unlink(missing_ok=True)
+        result = start_hidden_powershell_session(NODE_PTY_START_SESSION_SCRIPT, args, env=env, timeout_seconds=20)
+        launched_at = result["started_at"]
+        upsert_session_state(
+            TRANSPORT_DB_PATH,
+            {
+                "session_id": NODE_PTY_SESSION_ID,
+                "status": "launcher_started",
+                "running": False,
+                "started_at": launched_at,
+                "updated_at": launched_at,
+                "launcher_pid": result["launcher_pid"],
+                "wrapper_pid": None,
+                "repo_root": str(REPO_ROOT),
+                "mode": "node-pty-interactive-copilot",
+                "state_storage": "sqlite",
+                "state_db_path": str(TRANSPORT_DB_PATH),
+                "state_path": str(TRANSPORT_DB_PATH),
+                "window_state_path": str(TRANSPORT_DB_PATH),
+                "state_dir": str(STATE_DIR),
+                "session_command": str(NODE_PTY_START_SESSION_SCRIPT),
+                "input_logging_enabled": bool(log_input),
+                "startup_model_requested": startup_model or "",
+                "startup_model": startup_model or "",
+                "startup_allow_all_requested": bool(allow_all),
+                "startup_allow_all": bool(allow_all),
+                "hidden": True,
+                "visible_window_expected": False,
+                "stdout_path": result["stdout_path"],
+                "stderr_path": result["stderr_path"],
+                "input_queue_db_path": str(TRANSPORT_DB_PATH),
+                "trace_db_path": str(TRANSPORT_DB_PATH),
+            },
+            session_id=NODE_PTY_SESSION_ID,
+        )
+        deadline = time.time() + 20.0
+        while time.time() < deadline:
+            state = get_session_state(TRANSPORT_DB_PATH, session_id=NODE_PTY_SESSION_ID) or {}
+            if state.get("wrapper_pid"):
+                break
+            if not is_process_running(result["launcher_pid"]):
+                break
+            time.sleep(0.25)
+        state = get_session_state(TRANSPORT_DB_PATH, session_id=NODE_PTY_SESSION_ID) or {}
+        payload = {
+            "status": "started" if state.get("wrapper_pid") else "started_state_pending",
+            "launcher_pid": result["launcher_pid"],
+            "state_db_path": str(TRANSPORT_DB_PATH),
+            "state_path": str(TRANSPORT_DB_PATH),
+            "window_state_path": str(TRANSPORT_DB_PATH),
+            "session_command": str(NODE_PTY_START_SESSION_SCRIPT),
+            "input_logging_enabled": bool(log_input),
+            "startup_model": startup_model or "",
+            "startup_allow_all": bool(allow_all),
+            "hidden": True,
+            "visible_window_expected": False,
+            "note": "The node-pty-owned Copilot CLI session is running in a hidden helper process. Use the frontend AI console for input/output.",
+        }
+        upsert_session(
+            session_key,
+            kind="node-pty",
+            source="tools\\source\\copilot_admin_runner\\copilot_admin_runner.py",
+            status=payload["status"],
+            control_method="runner-state",
+            state_dir=str(STATE_DIR),
+            state_path=str(TRANSPORT_DB_PATH),
+            window_state_path=str(TRANSPORT_DB_PATH),
+            launcher_pid=result["launcher_pid"],
+            hidden=True,
+            visible_window_expected=False,
+            note="hidden node-pty Copilot session",
+        )
+    else:
+        if restart_existing:
+            args.append("-RestartExisting")
+        result = run_powershell_script(NODE_PTY_START_WINDOW_SCRIPT, args, timeout_seconds=45, env=env)
+        payload = json_from_stdout(result) or {}
     status = "started" if result["exit_code"] == 0 else "failed"
     log_event(
         "copilot_session_start_requested",
@@ -422,16 +610,46 @@ def stop_copilot_session(timeout_seconds: int = 30) -> dict[str, Any]:
     after = copilot_session_status()
     status = "stopped" if stopped_wrapper and stopped_launcher and not after["running"] else "blocked"
     if status == "stopped":
-        state = read_json_file(NODE_PTY_STATE_PATH) or {}
-        window_state = read_json_file(NODE_PTY_WINDOW_STATE_PATH) or {}
         stopped_at = utc_now()
-        if state:
-            state.update({"status": "stopped", "stopped_at": stopped_at, "updated_at": stopped_at})
-            NODE_PTY_STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
-        if window_state:
-            window_state.update({"status": "stopped", "stopped_at": stopped_at, "updated_at": stopped_at})
-            NODE_PTY_WINDOW_STATE_PATH.write_text(json.dumps(window_state, indent=2, ensure_ascii=False), encoding="utf-8")
+        state = get_session_state(TRANSPORT_DB_PATH, session_id=NODE_PTY_SESSION_ID) or {}
+        upsert_session_state(
+            TRANSPORT_DB_PATH,
+            {
+                **state,
+                "session_id": NODE_PTY_SESSION_ID,
+                "status": "stopped",
+                "running": False,
+                "stopped_at": stopped_at,
+                "updated_at": stopped_at,
+                "user_input_required": False,
+                "user_input_reason": None,
+                "visible_window_expected": False,
+                "launcher_pid": before.get("launcher_pid"),
+                "wrapper_pid": before.get("wrapper_pid"),
+                "state_storage": "sqlite",
+                "state_db_path": str(TRANSPORT_DB_PATH),
+                "state_path": str(TRANSPORT_DB_PATH),
+                "window_state_path": str(TRANSPORT_DB_PATH),
+            },
+            session_id=NODE_PTY_SESSION_ID,
+        )
         after = copilot_session_status()
+        upsert_session(
+            f"node-pty::{STATE_DIR}",
+            kind="node-pty",
+            source="tools\\source\\copilot_admin_runner\\copilot_admin_runner.py",
+            status="stopped",
+            control_method="runner-state",
+            state_dir=str(STATE_DIR),
+            state_path=str(TRANSPORT_DB_PATH),
+            window_state_path=str(TRANSPORT_DB_PATH),
+            wrapper_pid=before.get("wrapper_pid"),
+            launcher_pid=before.get("launcher_pid"),
+            hidden=None,
+            visible_window_expected=before.get("visible_window_expected"),
+            note="stopped node-pty Copilot session",
+        )
+        mark_session_stopped(f"node-pty::{STATE_DIR}")
     log_event(
         "copilot_session_stop_requested",
         "host-runner",
@@ -447,43 +665,112 @@ def stop_copilot_session(timeout_seconds: int = 30) -> dict[str, Any]:
     }
 
 
-def enqueue_copilot_input(text: str, submit: bool = True, dry_run: bool = False, clear_line: bool = False) -> dict[str, Any]:
+def enqueue_copilot_input(
+    text: str,
+    submit: bool = True,
+    dry_run: bool = False,
+    clear_line: bool = False,
+    job_id: str | None = None,
+    trace_id: str | None = None,
+    client_sent_at: str | None = None,
+    backend_accepted_at: str | None = None,
+) -> dict[str, Any]:
     session = copilot_session_status()
     if not dry_run and not session.get("running"):
         log_event(
             "job_failed",
             "host-runner",
-            {"reason": "copilot_session_not_running", "submit": submit},
+            {"reason": "copilot_session_not_running", "submit": submit, "job_id": job_id},
             level="warn",
             status="failed",
+            trace_id=trace_id,
+            job_id=job_id,
         )
         return {
             "status": "failed",
             "error": "No running node-pty Copilot session was found.",
             "copilot_session": session,
         }
-    args = ["-Text", text]
-    if not submit:
-        args.append("-NoSubmit")
-    if clear_line:
-        args.append("-ClearLine")
-    if dry_run:
-        args.append("-DryRun")
-    env = os.environ.copy()
-    env["COPILOT_ADMIN_RUNNER_STATE_DIR"] = str(STATE_DIR)
-    result = run_powershell_script(NODE_PTY_SEND_INPUT_SCRIPT, args, timeout_seconds=15, env=env)
-    payload = json_from_stdout(result) or {}
-    status = payload.get("status", "failed" if result["exit_code"] else "queued")
+    input_id = uuid.uuid4().hex
+    created_at = utc_now()
+    host_runner_received_at = utc_now()
+    queue_dir = NODE_PTY_INPUT_QUEUE_DIR
+    queue_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "input_id": input_id,
+        "created_at": created_at,
+        "text": f"{chr(21)}{text}" if clear_line else text,
+        "display_text": text,
+        "clear_line": bool(clear_line),
+        "submit": bool(submit),
+        "job_id": job_id,
+        "trace_id": trace_id,
+        "client_sent_at": client_sent_at,
+        "backend_accepted_at": backend_accepted_at,
+        "host_runner_received_at": host_runner_received_at,
+        "host_runner_queued_at": utc_now(),
+    }
+    transport_record = None
+    if not dry_run:
+        transport_record = enqueue_input(
+            TRANSPORT_DB_PATH,
+            source="host-runner",
+            text=payload["text"],
+            display_text=payload["display_text"],
+            clear_line=bool(payload["clear_line"]),
+            submit=bool(payload["submit"]),
+            job_id=job_id,
+            trace_id=trace_id,
+            client_sent_at=client_sent_at,
+            backend_accepted_at=backend_accepted_at,
+            host_runner_received_at=host_runner_received_at,
+            host_runner_queued_at=payload["host_runner_queued_at"],
+            input_id=input_id,
+            created_at=created_at,
+        )
+    status = "dry_run" if dry_run else "queued"
     log_event(
         "job_dispatched" if not dry_run else "job_dispatch_dry_run",
         "host-runner",
-        {"submit": submit, "dry_run": dry_run, "clear_line": clear_line, "exit_code": result["exit_code"], "input_id": payload.get("input_id")},
+        {
+            "submit": submit,
+            "dry_run": dry_run,
+            "clear_line": clear_line,
+            "input_id": input_id,
+            "input_path": None,
+            "input_queue_db_path": None if dry_run else str(TRANSPORT_DB_PATH),
+        },
         status=status,
+        trace_id=trace_id,
+        job_id=job_id,
     )
     return {
         "status": status,
-        "input": payload,
-        "stderr": result["stderr"],
+        "input": {
+            "status": status,
+            "input_id": input_id,
+            "input_path": None,
+            "queue_dir": str(queue_dir),
+            "input_queue_db_path": str(TRANSPORT_DB_PATH),
+            "state_dir": str(STATE_DIR),
+            "state_storage": "sqlite",
+            "state_db_path": str(TRANSPORT_DB_PATH),
+            "state_path": str(TRANSPORT_DB_PATH),
+            "session_state_exists": bool(get_session_state(TRANSPORT_DB_PATH, session_id=NODE_PTY_SESSION_ID)),
+            "session_running": bool(session.get("running")),
+            "text_length": len(text),
+            "clear_line": bool(clear_line),
+            "submit": bool(submit),
+            "dry_run": bool(dry_run),
+            "job_id": job_id,
+            "trace_id": trace_id,
+            "client_sent_at": client_sent_at,
+            "backend_accepted_at": backend_accepted_at,
+            "host_runner_received_at": host_runner_received_at,
+            "host_runner_queued_at": payload["host_runner_queued_at"],
+            "transport_status": None if dry_run else (transport_record or {}).get("status"),
+        },
+        "stderr": "",
         "copilot_session": copilot_session_status(),
     }
 
@@ -496,6 +783,48 @@ def get_browser_debug_info(port: int = 9222) -> dict[str, Any] | None:
             body = response.read().decode("utf-8")
         return json.loads(body)
     except Exception:
+        return None
+
+
+def resolve_browser_process_id(port: int, profile_dir: str | None = None) -> dict[str, Any] | None:
+    if os.name != "nt":
+        return None
+    profile_argument = "$expectedProfile = ''"
+    if profile_dir:
+        escaped_profile = str(Path(profile_dir).resolve()).replace("'", "''")
+        profile_argument = f"$expectedProfile = '{escaped_profile}'"
+    script = rf"""
+$port = {int(port)}
+{profile_argument}
+$connection = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $connection -or -not $connection.OwningProcess) {{ exit 0 }}
+$process = Get-CimInstance Win32_Process -Filter "ProcessId = $($connection.OwningProcess)" -ErrorAction SilentlyContinue
+if (-not $process) {{ exit 0 }}
+$commandLine = [string]$process.CommandLine
+if (-not $commandLine) {{ exit 0 }}
+if ($commandLine.IndexOf("--remote-debugging-port=$port", [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {{ exit 0 }}
+if ($expectedProfile -and $commandLine.IndexOf($expectedProfile, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {{ exit 0 }}
+[ordered]@{{
+  process_id = [int]$process.ProcessId
+  browser_path = [string]$process.ExecutablePath
+}} | ConvertTo-Json -Compress
+"""
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    stdout = (result.stdout or "").strip()
+    if result.returncode != 0 or not stdout:
+        return None
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError:
         return None
 
 
@@ -555,9 +884,29 @@ def start_browser_session(port: int = 9222, reuse_existing: bool = True, dry_run
 def stop_browser_session(port: int | None = None, timeout_seconds: int = 30) -> dict[str, Any]:
     before = browser_session_status(port)
     state = read_json_file(BROWSER_STATE_PATH) or {}
-    process_id = state.get("processId") or state.get("process_id")
-    stopped_process = stop_process(process_id, timeout_seconds)
     effective_port = int(port or before.get("port") or 9222)
+    owner = None
+    process_id = state.get("processId") or state.get("process_id")
+    if not before.get("running") and not process_id:
+        final_state = {
+            **state,
+            "status": "stopped",
+            "stopped_at": state.get("stopped_at") or utc_now(),
+            "updated_at": utc_now(),
+            "port": effective_port,
+        }
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        BROWSER_STATE_PATH.write_text(json.dumps(final_state, indent=2, ensure_ascii=False), encoding="utf-8")
+        return {
+            "status": "stopped",
+            "stopped_process": True,
+            "browser_session": browser_session_status(effective_port),
+            "note": "Browser session was already stopped and no owned processId was recorded.",
+        }
+    if not process_id:
+        owner = resolve_browser_process_id(effective_port, state.get("profileDir") or state.get("profile_dir"))
+        process_id = owner.get("process_id") if owner else None
+    stopped_process = stop_process(process_id, timeout_seconds)
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         if not get_browser_debug_info(effective_port):
@@ -579,7 +928,7 @@ def stop_browser_session(port: int | None = None, timeout_seconds: int = 30) -> 
     elif process_id:
         status = "blocked"
     else:
-        status = "blocked"
+        status = "not_owned"
     log_event(
         "browser_session_stop_requested",
         "host-runner",
@@ -587,6 +936,7 @@ def stop_browser_session(port: int | None = None, timeout_seconds: int = 30) -> 
             "port": effective_port,
             "process_id": process_id,
             "stopped_process": stopped_process,
+            "resolved_process_id": owner.get("process_id") if owner else None,
             "before": {"running": before.get("running"), "status": before.get("status")},
             "after": {"running": after.get("running"), "status": after.get("status")},
         },
@@ -597,12 +947,14 @@ def stop_browser_session(port: int | None = None, timeout_seconds: int = 30) -> 
         "status": status,
         "stopped_process": stopped_process,
         "browser_session": after,
-        "note": None if process_id else "No owned browser processId was recorded; refusing to kill an unknown browser.",
+        "note": None if process_id else "No owned browser processId was recorded and no safe browser owner could be resolved from the debug port.",
     }
 
 
 def start_admin_session(request: dict[str, Any]) -> dict[str, Any]:
     dry_run = bool(request.get("dry_run"))
+    skip_browser_start = bool(request.get("skip_browser_start"))
+    restart_existing = bool(request.get("restart_existing")) if "restart_existing" in request else True
     existing_copilot = copilot_session_status()
     if dry_run:
         copilot = {
@@ -610,25 +962,46 @@ def start_admin_session(request: dict[str, Any]) -> dict[str, Any]:
             "script": str(NODE_PTY_START_WINDOW_SCRIPT),
             "copilot_session": existing_copilot,
         }
-    elif existing_copilot.get("running") and not bool(request.get("restart_existing")):
+    elif existing_copilot.get("running") and not restart_existing:
         copilot = {
             "status": "reused_existing",
             "reason": "Existing node-pty Copilot session is already running; no new Copilot window was opened.",
             "copilot_session": existing_copilot,
         }
+        upsert_session(
+            f"node-pty::{STATE_DIR}",
+            kind="node-pty",
+            source="tools\\source\\copilot_admin_runner\\copilot_admin_runner.py",
+            status="running",
+            control_method="runner-state",
+            state_dir=str(STATE_DIR),
+            state_path=str(TRANSPORT_DB_PATH),
+            window_state_path=str(TRANSPORT_DB_PATH),
+            wrapper_pid=existing_copilot.get("wrapper_pid"),
+            launcher_pid=existing_copilot.get("launcher_pid"),
+            note="reused existing node-pty Copilot session",
+        )
     else:
+        startup_model = request["startup_model"] if "startup_model" in request else "auto"
         copilot = start_copilot_session(
-            restart_existing=bool(request.get("restart_existing")),
+            restart_existing=restart_existing,
             log_input=bool(request.get("log_input")),
-            startup_model=str(request.get("startup_model") or "gpt-5-mini"),
+            startup_model=str(startup_model) if startup_model else None,
             allow_all=not bool(request.get("no_allow_all")),
             hidden_window=bool(request.get("hidden_window")),
         )
-    browser = start_browser_session(
-        port=int(request.get("port") or 9222),
-        reuse_existing=not bool(request.get("no_reuse_existing")),
-        dry_run=dry_run,
-    )
+    if skip_browser_start:
+        browser = {
+            "status": "skipped",
+            "reason": "Browser start is managed by the external Playwright harness for this session.",
+            "browser_session": browser_session_status(int(request.get("port") or 9222)),
+        }
+    else:
+        browser = start_browser_session(
+            port=int(request.get("port") or 9222),
+            reuse_existing=not bool(request.get("no_reuse_existing")),
+            dry_run=dry_run,
+        )
     status = "started"
     if dry_run:
         status = "dry_run"
@@ -925,10 +1298,11 @@ def handle_request(request: dict[str, Any], bridge: str = "direct") -> dict[str,
         elif action == "copilot-status":
             payload = copilot_session_status()
         elif action == "copilot-start":
+            startup_model = request["startup_model"] if "startup_model" in request else "auto"
             payload = start_copilot_session(
-                restart_existing=bool(request.get("restart_existing")),
+                restart_existing=bool(request.get("restart_existing")) if "restart_existing" in request else True,
                 log_input=bool(request.get("log_input")),
-                startup_model=request.get("startup_model") or "gpt-5-mini",
+                startup_model=str(startup_model) if startup_model else None,
                 allow_all=not bool(request.get("no_allow_all")),
                 hidden_window=bool(request.get("hidden_window")),
             )
@@ -941,6 +1315,10 @@ def handle_request(request: dict[str, Any], bridge: str = "direct") -> dict[str,
                 submit=submit,
                 dry_run=bool(request.get("dry_run")),
                 clear_line=bool(request.get("clear_line")),
+                job_id=str(request.get("job_id") or "") or None,
+                trace_id=str(request.get("trace_id") or "") or None,
+                client_sent_at=str(request.get("client_sent_at") or "") or None,
+                backend_accepted_at=str(request.get("backend_accepted_at") or "") or None,
             )
         elif action == "browser-status":
             payload = browser_session_status(
@@ -1396,12 +1774,13 @@ def build_parser() -> argparse.ArgumentParser:
     copilot_status_parser.set_defaults(func=run_copilot_status)
 
     copilot_start_parser = subparsers.add_parser("copilot-start", help="Start a visible node-pty Copilot window.")
-    copilot_start_parser.add_argument("--restart-existing", action="store_true")
+    copilot_start_parser.add_argument("--restart-existing", dest="restart_existing", action="store_true", help=argparse.SUPPRESS)
+    copilot_start_parser.add_argument("--reuse-existing", dest="restart_existing", action="store_false", help="Reuse an existing node-pty Copilot session instead of starting fresh.")
     copilot_start_parser.add_argument("--log-input", action="store_true")
-    copilot_start_parser.add_argument("--startup-model", default="gpt-5-mini")
+    copilot_start_parser.add_argument("--startup-model", default="auto")
     copilot_start_parser.add_argument("--no-allow-all", action="store_true")
     copilot_start_parser.add_argument("--hidden-window", action="store_true")
-    copilot_start_parser.set_defaults(func=run_copilot_start)
+    copilot_start_parser.set_defaults(func=run_copilot_start, restart_existing=True)
 
     copilot_stop_parser = subparsers.add_parser("copilot-stop", help="Stop the active node-pty Copilot session.")
     copilot_stop_parser.add_argument("--timeout-seconds", type=int, default=30)
@@ -1431,13 +1810,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     session_start_parser = subparsers.add_parser("session-start", help="Start Copilot and browser host-side session.")
     session_start_parser.add_argument("--port", type=int, default=9222)
-    session_start_parser.add_argument("--restart-existing", action="store_true")
+    session_start_parser.add_argument("--restart-existing", dest="restart_existing", action="store_true", help=argparse.SUPPRESS)
+    session_start_parser.add_argument("--reuse-existing", dest="restart_existing", action="store_false", help="Reuse an existing node-pty Copilot session instead of starting fresh.")
     session_start_parser.add_argument("--log-input", action="store_true")
-    session_start_parser.add_argument("--startup-model", default="gpt-5-mini")
+    session_start_parser.add_argument("--startup-model", default="auto")
     session_start_parser.add_argument("--no-allow-all", action="store_true")
     session_start_parser.add_argument("--hidden-window", action="store_true")
     session_start_parser.add_argument("--dry-run", action="store_true")
-    session_start_parser.set_defaults(func=run_session_start)
+    session_start_parser.set_defaults(func=run_session_start, restart_existing=True)
 
     session_stop_parser = subparsers.add_parser("session-stop", help="Stop Copilot and browser host-side session.")
     session_stop_parser.add_argument("--port", type=int, default=9222)

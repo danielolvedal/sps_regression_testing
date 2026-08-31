@@ -4,7 +4,8 @@ param(
     [int]$BackendPort = 8765,
     [int]$HostRunnerPort = 8766,
     [int]$BrowserPort = 9222,
-    [string]$StartupModel = 'gpt-5-mini',
+    [string]$StartupModel = 'auto',
+    [switch]$StartCopilotSession,
     [switch]$RestartExisting,
     [switch]$HideCopilotWindow,
     [switch]$OpenUiInSharedBrowser,
@@ -116,8 +117,11 @@ if ($DryRun) {
         browser_port = $BrowserPort
         startup_model = $StartupModel
         allow_all = $true
+        session_start_requested = [bool]$StartCopilotSession
+        session_start_policy = if ($StartCopilotSession) { 'start-tool-fresh-copilot' } else { 'ai-console-on-demand-fresh-copilot' }
         copilot_window_mode = if ($HideCopilotWindow) { 'hidden' } else { 'visible' }
-        singleton_policy = 'reuse existing Copilot/browser sessions; print the admin UI URL for the user to open separately'
+        singleton_policy = 'Copilot session starts fresh by default; browser session may reuse existing owned admin browser. For visible localhost admin UI work use runtime\start-collaborative-copilot-admin-browser.ps1 instead of the stage browser or automation browser'
+        visible_admin_browser_script = '.\runtime\start-collaborative-copilot-admin-browser.ps1'
     } | ConvertTo-Json -Depth 10
     Write-Host "Regression tool suite started - Graphical interface at: $uiUrl"
     exit 0
@@ -147,7 +151,7 @@ Set-Location -LiteralPath '$repoRoot'
 $null = Wait-JsonEndpoint "$hostRunnerUrl/health" 45
 
 $backendHealthOk = Test-JsonEndpoint "$backendUrl/api/health"
-$backendConsoleOk = Test-JsonEndpoint "$backendUrl/api/copilot/console?limit=1"
+$backendConsoleOk = Test-JsonEndpoint "$backendUrl/api/ai-console?limit=1"
 if ($backendHealthOk -and -not $backendConsoleOk) {
     if ($previousState -and $previousState.backend_pid) {
         $null = Stop-RecordedProcess -ProcessName 'Copilot-admin backend' -ProcessId ([int]$previousState.backend_pid)
@@ -156,7 +160,7 @@ if ($backendHealthOk -and -not $backendConsoleOk) {
         $null = Stop-BackendPortOwnerIfCompatible
     }
     if (Test-JsonEndpoint "$backendUrl/api/health") {
-        throw "A stale backend is still listening on $backendUrl and does not expose /api/copilot/console."
+        throw "A stale backend is still listening on $backendUrl and does not expose /api/ai-console."
     }
     $backendHealthOk = $false
 }
@@ -176,13 +180,6 @@ Set-Location -LiteralPath '$repoRoot'
 }
 $null = Wait-JsonEndpoint "$backendUrl/api/health" 45
 
-$sessionBody = @{
-    restart_existing = [bool]$RestartExisting
-    startup_model = $StartupModel
-    hidden_window = [bool]$HideCopilotWindow
-}
-$sessionJob = Invoke-RestMethod -Method POST -Uri "$backendUrl/api/session/start" -ContentType 'application/json' -Body ($sessionBody | ConvertTo-Json -Depth 5) -Headers @{ 'X-Trace-Id' = 'start-tool' } -TimeoutSec 120
-
 $status = Invoke-RestMethod -Method GET -Uri "$backendUrl/api/status" -TimeoutSec 15
 if ($OpenUiInSharedBrowser) {
     try {
@@ -190,6 +187,17 @@ if ($OpenUiInSharedBrowser) {
     } catch {
         Write-Warning "The tool started, but opening the UI in the shared browser failed: $($_.Exception.Message)"
     }
+}
+
+$sessionJob = $null
+if ($StartCopilotSession) {
+    $sessionBody = @{
+        restart_existing = $true
+        startup_model = $StartupModel
+        hidden_window = [bool]$HideCopilotWindow
+    }
+    $sessionJob = Invoke-RestMethod -Method POST -Uri "$backendUrl/api/session/start" -ContentType 'application/json' -Body ($sessionBody | ConvertTo-Json -Depth 5) -Headers @{ 'X-Trace-Id' = 'start-tool' } -TimeoutSec 120
+    $status = Invoke-RestMethod -Method GET -Uri "$backendUrl/api/status" -TimeoutSec 15
 }
 
 $state = [ordered]@{
@@ -201,15 +209,18 @@ $state = [ordered]@{
     browser_port = $BrowserPort
     startup_model = $StartupModel
     allow_all = $true
+    session_start_requested = [bool]$StartCopilotSession
+    session_start_policy = if ($StartCopilotSession) { 'start-tool-fresh-copilot' } else { 'ai-console-on-demand-fresh-copilot' }
     copilot_window_mode = if ($HideCopilotWindow) { 'hidden' } else { 'visible' }
-    singleton_policy = 'reuse existing Copilot/browser sessions; print the admin UI URL for the user to open separately'
+    singleton_policy = 'Copilot session starts fresh by default; browser session may reuse existing owned admin browser. For visible localhost admin UI work use runtime\start-collaborative-copilot-admin-browser.ps1 instead of the stage browser or automation browser'
+    visible_admin_browser_script = '.\runtime\start-collaborative-copilot-admin-browser.ps1'
     admin_ui_opened_in_shared_browser = [bool]$OpenUiInSharedBrowser
     host_runner_started_by_script = $hostRunnerStarted
     backend_started_by_script = $backendStarted
     host_runner_pid = if ($hostRunnerProcess) { $hostRunnerProcess.Id } else { $null }
     backend_pid = if ($backendProcess) { $backendProcess.Id } else { $null }
-    session_job_id = $sessionJob.job_id
-    session_job_status = $sessionJob.status
+    session_job_id = if ($sessionJob) { $sessionJob.job_id } else { $null }
+    session_job_status = if ($sessionJob) { $sessionJob.status } else { 'not_requested' }
     copilot_status = $status.copilot_session.status
     browser_status = $status.browser_session.status
     logs = [ordered]@{

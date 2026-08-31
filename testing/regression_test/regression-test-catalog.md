@@ -33,7 +33,11 @@ ska agenten först läsa denna katalog och därefter öppna rätt testfil.
 | `D` | `-` | `regression-document-index-coverage` | Validate document index coverage for all tracked persistent documentation and data files. | `testing\regression_test\document-index-coverage.md` |
 | `E` | `-` | `regression-kallinventering-coverage` | Validate raw-data coverage and downstream synthetic-data traceability in kallinventering.md. | `testing\regression_test\kallinventering-coverage.md` |
 | `F` | `-` | `regression-regression-dependency-synchronization` | Validate synchronization between regression test metadata, the regression catalog, and the standalone Mermaid dependency file. | `testing\regression_test\regression-dependency-coverage.md` |
-| `G` | `B -> G` | `regression-serviceportal-checkout-verify-and-create-contract` | Start from the checkout page created by B, verify that customer data and pricing are correct, then accept the terms and create the contract. | `testing\regression_test\serviceportal-checkout-verifiering-och-skapa-kontrakt.md` |
+| `G` | `B -> G, K -> G` | `regression-serviceportal-checkout-verify-and-create-contract` | Start from the checkout page created by B or K, verify checkout and contract creation, and retry the source-specific setup flow until one DS passes or every relevant DS candidate has been tested. | `testing\regression_test\serviceportal-checkout-verifiering-och-skapa-kontrakt.md` |
+| `H` | `-` | `regression-kundtjanst-svensk-lokalisering-och-terminologi` | Audit every Customer Service Center menu and page in stage for non-Swedish UI text and Swedish terminology consistency. | `testing\regression_test\kundtjanst-svensk-lokalisering-och-terminologi.md` |
+| `I` | `-` | `regression-wallboard-messages-layout-och-acknowledge` | Create six active wallboard messages in Admin, verify FullScreen, HalfScreen and OneThirdScreen rendering in Stage, and confirm that one message requires acknowledge. | `testing\regression_test\wallboard-messages-layout-och-acknowledge.md` |
+| `J` | `-` | `regression-ds-routing-inventory-sps-vs-legacy` | Build and maintain the shared DS routing inventory by collecting all DS numbers/names and classifying each DS as SPS-stage or legacy-stage through Create New Contract step 1. | `testing\regression_test\ds-routing-inventory-sps-vs-legacy.md` |
+| `K` | `A + J -> K` | `regression-serviceportal-nytt-kontrakt-sps-ds` | Start from the logged-in service portal page created by A, use J's DS routing inventory as the SPS-DS source, and verify the new-contract flow for that parking. | `testing\regression_test\serviceportal-nytt-kontrakt-sps-ds.md` |
 
 ## Beroendegraf
 
@@ -45,10 +49,14 @@ Den fristående Mermaid-koden finns i:
 
 - `A` är ett fristående starttest.
 - `A` ska avslutas på kundens inloggade serviceportalsida.
-- `B` bygger på att `A` först etablerar rätt inloggad serviceportal-session och startar därefter med `Nytt kontrakt` innan ett DS med status `Migrated` används.
-- `G` bygger vidare på slutläget i `B` och verifierar checkout- samt skapa-kontrakt-steget.
+- `B` bygger på att `A` först etablerar rätt inloggad serviceportal-session och startar därefter med `Nytt kontrakt` innan en migrerad site/ett migrerat DS med status `Migrated` i `Admin -> Migrate DS` används. Kedjan `B -> G` testar kontraktsskapande på migrerade DS.
+- `G` bygger vidare på slutläget i `B` eller `K` och verifierar checkout- samt skapa-kontrakt-steget. Om `G` fallerar ska vald källkedja upprepas med nya relevanta DS-kandidater tills ett DS passerar eller alla kandidater för den kedjan har prövats.
 - `C` bygger på att `A` först etablerar rätt inloggad serviceportal-session och startar därefter med `Nytt kontrakt` innan ett DS som inte är migrerat används.
 - `D`, `E` och `F` är fristående strukturregressioner utan beroenden till UI-flödena.
+- `H` är ett fristående Kundtjänst-/CSC-UI-test som granskar alla stage-menyer mot engelska, blandade eller andra utländska UI-uttryck och normaliserar terminologin till god svenska.
+- `I` är ett fristående Admin-/CSC-UI-test som skapar sex wallboardmeddelanden, verifierar layoutfamiljerna i Stage och kontrollerar att `Acknowledge` verkligen kräver kvittens.
+- `J` är ett fristående Kundtjänst-/CSC-dataregressionstest som skapar och håller uppdaterad den gemensamma DS-routinglistan för SPS kontra legacy.
+- `K` bygger på både `A` och `J`: `A` etablerar kundens inloggade serviceportal-session och `J` är den styrande DS-förutsättningen. Kedjan `K -> G` testar kontraktsskapande på DS som finns i SPS genom att välja DS med `routing: "sps-stage"` från `raw_data\ds-routing-inventory.json`. J behålls fristående så listan kan uppdateras utan att först köra A.
 - Nya tester ska läggas till i tabellen och i Mermaid-grafen när de införs.
 
 ## Underhållsregel

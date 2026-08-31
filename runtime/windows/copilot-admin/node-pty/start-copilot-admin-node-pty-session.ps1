@@ -1,6 +1,6 @@
 param(
     [switch]$LogInput,
-    [string]$StartupModel = 'gpt-5-mini',
+    [string]$StartupModel = '',
     [switch]$AllowAll = $true
 )
 
@@ -25,4 +25,5 @@ if ($StartupModel) {
 if ($AllowAll) {
     $arguments += '--allow-all'
 }
+$env:COPILOT_ADMIN_LAUNCHER_PID = [string]$PID
 & $node @arguments

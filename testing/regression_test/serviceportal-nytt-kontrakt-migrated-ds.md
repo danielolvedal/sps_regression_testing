@@ -1,6 +1,6 @@
-# Regressionstest - serviceportalen nytt kontrakt via migrated DS
+# Regressionstest - serviceportalen nytt kontrakt via migrerat DS från Migrate DS
 
-Detta regressionstest verifierar att en användare som redan loggats in via assisted login kan identifiera ett migrerat DS i adminflödet, söka efter motsvarande parkeringsnamn i serviceportalen och fortsätta till kontraktsskapandet utan att tappa inloggat läge.
+Detta regressionstest verifierar att en användare som redan loggats in via assisted login kan identifiera en migrerad site/ett migrerat DS i `Admin -> Migrate DS`, söka efter motsvarande parkeringsnamn i serviceportalen och fortsätta till kontraktsskapandet utan att tappa inloggat läge.
 
 ## Test-ID
 
@@ -36,7 +36,9 @@ Manuellt/shared-browser-test i synlig serviceportal-session.
 
 ## Syfte
 
-Verifiera att användaren från sin redan inloggade serviceportalsida kan klicka på `Nytt kontrakt`, identifiera ett DS med migration status `Migrated`, använda parkeringsnamnet från det DS:t i serviceportalen och komma vidare i nytt kontrakt-flödet i fortsatt inloggat läge med personnummer förifyllt.
+Verifiera att användaren från sin redan inloggade serviceportalsida kan klicka på `Nytt kontrakt`, identifiera en migrerad site/ett migrerat DS med migration status `Migrated` i `Admin -> Migrate DS`, använda parkeringsnamnet från det DS:t i serviceportalen och komma vidare i nytt kontrakt-flödet i fortsatt inloggat läge med personnummer förifyllt.
+
+Detta test ska fortsätta vara kontrollen för migrerade siter/DS. Kedjan `B -> G` ska testa kontraktsskapande på migrerade DS, medan `K -> G` testar kontraktsskapande på DS som finns i SPS enligt `J`.
 
 ## Iterationsregel
 
@@ -155,6 +157,7 @@ Dokumentera minst:
 ## Relaterade dokument
 
 - `testing\regression_test\kontrakt-sok-anna-serviceportal-login.md`
+- `testing\regression_test\serviceportal-nytt-kontrakt-sps-ds.md`
 - `testing\regression_test\regression-test-catalog.md`
 - `tools\docs\regressionstest-arbetsmodell.md`
 - `tools\docs\browser-samarbete-stage-session.md`

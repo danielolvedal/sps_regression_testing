@@ -67,7 +67,7 @@ Loggen ska inte användas för hemligheter eller fullständig siddata från brow
 Den interaktiva `node-pty`-ägda Copilot-sessionen ska startas med explicit standardpolicy:
 
 - modell: `gpt-5-mini`, som är valt som lågkostnadsstandard för kontrollplanet
-- permissions: `/allow-all`, så regressionstest och verktygskörningar inte fastnar i onödiga permission-prompter
+- permissions: `/permissions allow-all`, så regressionstest och verktygskörningar inte fastnar i onödiga permission-prompter
 - folder trust: om Copilot visar `Confirm folder trust` ska wrappern välja `1. Yes` för aktuell session innan övriga startup-kommandon skickas
 
 Policyn ska vara synlig i state/loggar och kunna överstyras med parametrar, men standarden ska vara att control-plane-starten inte lämnar modell eller permissions åt slumpen.
@@ -433,12 +433,12 @@ Bedömning: node-pty-POC:n är godkänd för tvåvägskommunikation i ett runner
 
 Den synliga wrappern skriver state och transcript till:
 
-- `tmp\copilot_admin_runner_state\node-pty-copilot-session.json`
+- `tmp\copilot_admin_runner_state\copilot-admin-transport.sqlite` för live session-state, readiness, senaste output-metadata, inputkö och trace-events
 - `tmp\copilot_admin_runner_state\node-pty-copilot-session-output.txt`
 - `tmp\copilot_admin_runner_state\node-pty-copilot-session-input.txt` endast när diagnostikläget `-LogInput` används
-- `tmp\copilot_admin_runner_state\node-pty-copilot-input-queue` för programatisk input till den aktiva wrappern
+- `tmp\copilot_admin_runner_state\node-pty-copilot-input-queue` som logisk köyta, men den faktiska köordningen/state ligger i SQLite
 
-Statefilen innehåller bland annat `user_input_required`, `user_input_reason`, `last_output_tail` och `last_injected_text`, så en framtida control plane kan visa om Copilot väntar på användarens svar och vilken icke-känslig testinput som senast injicerades.
+SQLite-session-state innehåller bland annat `user_input_required`, `user_input_reason`, `last_output_tail` och `last_injected_text`, så en framtida control plane kan visa om Copilot väntar på användarens svar och vilken icke-känslig testinput som senast injicerades utan att förlita sig på en separat JSON-snapshot.
 
 Viktigt edge case: Copilot CLI kan vid första körning eller ny katalog fråga efter mänsklig bekräftelse, exempelvis om katalogen ska litas på, eller kräva inloggning/auktorisering. PTY-spåret får därför inte tolka utebliven promptrespons som ett vanligt häng. Scriptade `node-pty`-tester detekterar interaktiva frågor i fångad output och rapporterar `user_input_required=true` med skäl, så att host runner/control plane kan visa att Copilot väntar på användaren i stället för att bara timea ut.
 

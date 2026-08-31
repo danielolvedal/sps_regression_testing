@@ -1,7 +1,7 @@
 param(
     [switch]$RestartExisting,
     [switch]$LogInput,
-    [string]$StartupModel = 'gpt-5-mini',
+    [string]$StartupModel = 'auto',
     [switch]$AllowAll = $true,
     [int]$StartupTimeoutSeconds = 45,
     [int]$StopTimeoutSeconds = 20
@@ -51,7 +51,7 @@ try {
     $deadline = (Get-Date).AddSeconds($StartupTimeoutSeconds)
     do {
         $status = Invoke-RunnerJson -Arguments @($runner, 'copilot-status')
-        if ($status.running -and $status.state_path -and $status.transcript_path -and $status.input_queue.queue_dir) {
+        if ($status.running -and ($status.state_db_path -or $status.state_path) -and $status.transcript_path -and $status.input_queue.queue_dir) {
             break
         }
         Start-Sleep -Milliseconds 500
@@ -60,8 +60,9 @@ try {
     if (-not $status.running) {
         throw 'The real node-pty Copilot session did not report running state.'
     }
-    if (-not (Test-Path -LiteralPath $status.state_path)) {
-        throw 'The node-pty Copilot state file was not written.'
+    $stateDbPath = if ($status.state_db_path) { [string]$status.state_db_path } else { [string]$status.state_path }
+    if (-not (Test-Path -LiteralPath $stateDbPath)) {
+        throw 'The node-pty Copilot SQLite state database was not written.'
     }
     if (-not $status.log_path) {
         throw 'The node-pty Copilot status did not expose a JSONL log path.'
@@ -82,6 +83,7 @@ try {
         observed_status = $status.status
         stopped_status = if ($stopResult) { $stopResult.status } else { $null }
         state_path = $status.state_path
+        state_db_path = $stateDbPath
         transcript_path = $status.transcript_path
         log_path = $status.log_path
         checked_at = (Get-Date).ToUniversalTime().ToString('o')

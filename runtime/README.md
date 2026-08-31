@@ -27,6 +27,7 @@ Common root wrappers:
 | Plats | Syfte |
 | --- | --- |
 | `runtime\install_tool.ps1` | Kor pre-flight och installerar saknade beroenden sa att `start_tool.ps1` kan starta Copilot-admin-flodet. |
+| `runtime\start-collaborative-copilot-admin-browser.ps1` | Startar den synliga användar-/agentsessionen för Copilot-admins localhost-UI på separat debug-port. |
 
 Common host-runner smoke wrappers:
 

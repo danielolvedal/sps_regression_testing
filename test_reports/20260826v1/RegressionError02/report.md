@@ -1,8 +1,8 @@
-# Checkout renders invalid pricing and no notification method
+# Invalidated checkout invalid-pricing and notification-method report
 
 ## Status
 
-`verified`
+`invalidated`
 
 ## Affected Environment
 
@@ -17,6 +17,8 @@
 ## Summary
 
 After the migrated DS flow reaches checkout, the page shows the selected product and customer data correctly, but the payment summary renders `SEK NaN/månad inkl. moms` and the notification method dropdown is empty. This breaks the checkout verification expected by regression test `G`.
+
+Under the current G-test rules, this evidence is insufficient to prove a system regression in stage because the failure may be tied to the selected DS configuration. A valid current report must include a candidate log for at least ten distinct migrated DS candidates, preferably including Akka garages when available, unless the run is explicitly marked as blocked due to insufficient candidates.
 
 ## Reproduction Steps
 

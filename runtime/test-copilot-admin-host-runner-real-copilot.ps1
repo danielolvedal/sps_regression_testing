@@ -1,7 +1,7 @@
 param(
     [switch]$RestartExisting,
     [switch]$LogInput,
-    [string]$StartupModel = 'gpt-5-mini',
+    [string]$StartupModel = 'auto',
     [switch]$AllowAll = $true,
     [int]$StartupTimeoutSeconds = 45,
     [int]$StopTimeoutSeconds = 20

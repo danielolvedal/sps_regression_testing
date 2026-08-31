@@ -10,20 +10,30 @@ const requiredTestIds = [
   "status-diode",
   "view-dashboard",
   "dashboard-cards",
+  "nav-manualer",
+  "view-manualer",
+  "manuals-hero",
+  "manuals-sections",
+  "manuals-section-csc",
+  "manuals-section-serviceportal",
+  "manuals-section-clients",
+  "manual-filter",
+  "manual-list",
+  "manual-reader",
   "copilot-window-visible-toggle",
-  "nav-copilot",
-  "view-copilot",
-  "copilot-console",
-  "copilot-console-output",
-  "copilot-console-input",
-  "copilot-console-send",
-  "copilot-console-send-esc",
-  "copilot-console-send-tab",
+  "nav-ai-console",
+  "view-ai-console",
+  "ai-console",
+  "ai-console-output",
+  "ai-console-input",
+  "ai-console-send",
+  "ai-console-send-esc",
+  "ai-console-send-tab",
   "copilot-start-session-button",
-  "copilot-console-status",
+  "ai-console-status",
   "copilot-window-mode",
-  "copilot-console-model",
-  "copilot-console-permissions",
+  "ai-console-model",
+  "ai-console-permissions",
   "learning-mode-button",
   "testing-mode-button",
   "view-regressioner",
@@ -55,8 +65,8 @@ const requiredEvents = [
   "api_request_failed",
   "button_clicked",
   "mode_changed",
-  "copilot_console_refreshed",
-  "copilot_console_input_sent",
+  "ai_console_refreshed",
+  "ai_console_input_sent",
   "job_created",
   "job_opened",
   "report_opened",
@@ -70,10 +80,10 @@ const requiredEvents = [
 const requiredEndpoints = [
   "/api/status",
   "/api/session/start",
-  "/api/session/copilot",
-  "/api/session/browser",
-  "/api/copilot/console",
-  "/api/copilot/input",
+  "/api/ai-console",
+  "/api/ai-console/events",
+  "/api/ai-console/input",
+  "/api/manuals",
   "/api/regression/tests",
   "/api/regression/mermaid",
   "/api/copilot/mode",
@@ -96,11 +106,14 @@ for (const endpoint of requiredEndpoints) {
   if (!js.includes(endpoint)) failures.push(`Missing API endpoint integration: ${endpoint}`);
 }
 if (!js.includes("hidden_window")) failures.push("Missing Copilot window visibility payload.");
-if (!js.includes("clear_line")) failures.push("Missing Copilot console clear-line payload.");
-if (!js.includes("Disconnected - please wait until Copilot is online")) failures.push("Missing disconnected Copilot console empty state.");
-if (!js.includes("setSemanticBadge")) failures.push("Missing semantic Copilot badge renderer.");
-for (const phrase of ["status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "copilot-console-output", "copilot-console-form", "copilot-console-special-actions"]) {
+if (!js.includes("clear_line")) failures.push("Missing AI console clear-line payload.");
+if (!js.includes("Disconnected - please wait until Copilot is online")) failures.push("Missing disconnected AI console empty state.");
+if (!js.includes("setSemanticBadge")) failures.push("Missing semantic AI console badge renderer.");
+for (const phrase of ["status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "ai-console-output", "ai-console-form", "ai-console-special-actions"]) {
   if (!css.includes(phrase)) failures.push(`Missing CSS affordance: ${phrase}`);
+}
+for (const phrase of ["manuals-grid", "manuals-card", "manuals-hero"]) {
+  if (!css.includes(phrase)) failures.push(`Missing Manualer CSS affordance: ${phrase}`);
 }
 if (!js.includes("setInterval(refreshStatusAndJobs, POLL_MS)")) {
   failures.push("Missing periodic status polling.");

@@ -1,7 +1,23 @@
 const API_BASE = window.COPILOT_ADMIN_API_BASE || "";
-const POLL_MS = 5000;
+const FRONTEND_CONFIG = window.COPILOT_ADMIN_FRONTEND || {};
+const ROUTE_VERSION = FRONTEND_CONFIG.routeVersion || "dev";
+const VIEW_ROUTES = {
+  dashboard: "dashboard",
+  manualer: "manualer",
+  "ai-console": "ai-console",
+  regressioner: "regressioner",
+  mermaid: "mermaid",
+  rapporter: "rapporter",
+  jobb: "jobb",
+  loggar: "loggar",
+};
+const ROUTE_ALIASES = {
+  "ai-konsolen": "ai-console",
+};
+const POLL_MS = 1500;
 const CONSOLE_POLL_LIMIT = 24000;
 const MAX_CONSOLE_BUFFER = 200000;
+const CONSOLE_EVENT_LIMIT = 12000;
 const REQUIRED_EVENTS = new Set([
   "page_view",
   "api_request_started",
@@ -9,8 +25,9 @@ const REQUIRED_EVENTS = new Set([
   "api_request_failed",
   "button_clicked",
   "mode_changed",
-  "copilot_console_input_sent",
-  "copilot_console_refreshed",
+  "ai_console_input_sent",
+  "ai_console_refreshed",
+  "ai_console_rendered",
   "job_created",
   "job_opened",
   "report_opened",
@@ -28,33 +45,91 @@ const state = {
   mode: "unknown",
   copilotWindowVisible: true,
   status: null,
+  manuals: [],
+  manualSections: [],
+  activeManualId: "",
   tests: [],
   reports: [],
   jobs: [],
-  console: null,
-  consoleTranscript: "",
-  consoleCursor: null,
+  aiConsole: null,
+  aiConsoleTranscript: "",
+  aiConsoleCursor: null,
   mermaid: "",
   mermaidTransform: { scale: 1, x: 0, y: 0 },
   lastDiode: "red",
-  lastConsoleSignature: "",
-  consoleSending: false,
+  lastAiConsoleSignature: "",
+  aiConsoleSending: false,
+  aiConsoleStartInProgress: false,
+  aiConsoleEvents: null,
+  aiConsoleEventsConnected: false,
+  lastAutoStartAttempt: 0,
+  lastAiConsoleEventAt: null,
+  lastAiConsoleInput: null,
+  lastAiConsoleRender: null,
+  aiConsoleStartError: "",
   logs: [],
+};
+
+const CONSOLE_TILE_ICONS = {
+  status: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <path d="M24 10v12" />
+      <path d="M16.2 15.2a12.8 12.8 0 1 0 15.6 0" />
+    </svg>
+  `,
+  motor: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <rect x="16" y="16" width="16" height="16" rx="2.6" />
+      <rect x="21" y="21" width="6" height="6" rx="0.8" />
+      <path d="M19 11v4M24 11v4M29 11v4M19 33v4M24 33v4M29 33v4M11 19h4M11 24h4M11 29h4M33 19h4M33 24h4M33 29h4" />
+    </svg>
+  `,
+  model: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <path d="M19.5 14.5c-5 0-8.5 4.1-8.5 8.8 0 2.6 1 4.8 2.8 6.4.6.5.9 1.2.9 2v1c0 1.6 1.3 2.8 2.8 2.8h1.5v-5.2c0-1.4-1.1-2.5-2.5-2.5h-1.3" />
+      <path d="M28.5 14.5c5 0 8.5 4.1 8.5 8.8 0 2.6-1 4.8-2.8 6.4-.6.5-.9 1.2-.9 2v1c0 1.6-1.3 2.8-2.8 2.8H29v-5.2c0-1.4 1.1-2.5 2.5-2.5h1.3" />
+      <path d="M21 19.2c.8-1.5 1.9-2.4 3-2.4s2.2.9 3 2.4M21 28.8c.8 1.5 1.9 2.4 3 2.4s2.2-.9 3-2.4M20.2 24h7.6" />
+      <path d="M17 18.8h1.2M16.2 22.4h1.4M16.6 26h1.3M30.8 18.8H32M30.4 22.4h1.4M30.1 26h1.3" />
+    </svg>
+  `,
+  permissions: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <circle cx="17" cy="18" r="4.4" />
+      <circle cx="17" cy="18" r="1.2" />
+      <path d="M21.4 18h10.8" />
+      <path d="M28.8 18v3.7M32.2 18v2.7" />
+      <path d="M17 22.4v9.1" />
+    </svg>
+  `,
+  project: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <path d="M10.5 16.5a2.5 2.5 0 0 1 2.5-2.5h7.6l2.9 3H35a2.5 2.5 0 0 1 2.5 2.5v11a2.5 2.5 0 0 1-2.5 2.5H13a2.5 2.5 0 0 1-2.5-2.5v-14Z" />
+    </svg>
+  `,
+  prompt: `
+    <svg viewBox="0 0 48 48" focusable="false" aria-hidden="true">
+      <path d="M13 14.5h22a2.5 2.5 0 0 1 2.5 2.5v11a2.5 2.5 0 0 1-2.5 2.5H20l-5.5 5v-5H13a2.5 2.5 0 0 1-2.5-2.5V17a2.5 2.5 0 0 1 2.5-2.5Z" />
+      <path d="M18 19.8h12M18 24.8h10" />
+    </svg>
+  `,
 };
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 document.addEventListener("DOMContentLoaded", () => {
+  setActiveView(viewFromLocation(), { updateUrl: false, log: false });
   bindNavigation();
   bindModeControls();
   bindRegressionControls();
+  bindManualFilter();
   bindMermaidControls();
-  bindCopilotConsole();
+  bindAiConsole();
   bindReportFilter();
   bindStartupControls();
   $$("[data-action='start-session'], #start-session-button").forEach((button) => button.addEventListener("click", () => startSession(button.id)));
   logEvent("page_view", { view: state.activeView });
+  connectAiConsoleEvents();
   refreshAll();
   setInterval(refreshStatusAndJobs, POLL_MS);
 });
@@ -62,13 +137,59 @@ document.addEventListener("DOMContentLoaded", () => {
 function bindNavigation() {
   $$(".nav-item").forEach((button) => {
     button.addEventListener("click", () => {
-      const view = button.dataset.view;
-      state.activeView = view;
-      $$(".nav-item").forEach((item) => item.classList.toggle("active", item === button));
-      $$(".view").forEach((panel) => panel.classList.toggle("active", panel.id === `view-${view}`));
-      logEvent("page_view", { view });
+      setActiveView(button.dataset.view, { updateUrl: true, log: true });
     });
   });
+  window.addEventListener("popstate", () => {
+    setActiveView(viewFromLocation(), { updateUrl: false, log: true });
+  });
+}
+
+function viewFromLocation() {
+  const segment = decodeURIComponent(window.location.pathname.split("/").filter(Boolean)[0] || "").toLowerCase();
+  return ROUTE_ALIASES[segment] || (Object.values(VIEW_ROUTES).includes(segment) ? segment : FRONTEND_CONFIG.route || "dashboard");
+}
+
+function versionedPathForView(view) {
+  const route = VIEW_ROUTES[view] || "dashboard";
+  return `/${route}/${ROUTE_VERSION}`;
+}
+
+function setActiveView(view, options = {}) {
+  const nextView = VIEW_ROUTES[view] ? view : "dashboard";
+  state.activeView = nextView;
+  $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === nextView));
+  $$(".view").forEach((panel) => panel.classList.toggle("active", panel.id === `view-${nextView}`));
+  if (options.updateUrl && window.history?.pushState) {
+    const nextPath = versionedPathForView(nextView);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ view: nextView, routeVersion: ROUTE_VERSION }, "", nextPath);
+    }
+  }
+  if (options.log) logEvent("page_view", { view: nextView, route_version: ROUTE_VERSION });
+  if (nextView === "ai-console") ensureCopilotSession();
+  if (nextView === "manualer") refreshManualsView();
+  if (nextView === "rapporter") refreshReportsView();
+}
+
+async function refreshManualsView() {
+  await loadManuals();
+  renderManuals();
+  const visibleManuals = filteredManuals();
+  if (!visibleManuals.length) {
+    state.activeManualId = "";
+    $("#manual-reader").innerHTML = "<p>Inga manualer matchar filtret.</p>";
+    return;
+  }
+  const stillVisible = visibleManuals.some((manual) => (manual.manual_id || manual.id) === state.activeManualId);
+  if (!stillVisible) {
+    await openManual(visibleManuals[0].manual_id || visibleManuals[0].id, { skipRenderList: true });
+  }
+}
+
+async function refreshReportsView() {
+  await loadReports();
+  if (state.activeView === "rapporter") renderReports();
 }
 
 function bindModeControls() {
@@ -141,26 +262,41 @@ function bindMermaidControls() {
   });
 }
 
+function bindManualFilter() {
+  $("#manual-filter").addEventListener("input", async () => {
+    renderManuals();
+    const visibleManuals = filteredManuals();
+    if (!visibleManuals.length) {
+      state.activeManualId = "";
+      $("#manual-reader").innerHTML = "<p>Inga manualer matchar filtret.</p>";
+      return;
+    }
+    if (!visibleManuals.some((manual) => (manual.manual_id || manual.id) === state.activeManualId)) {
+      await openManual(visibleManuals[0].manual_id || visibleManuals[0].id, { skipRenderList: true });
+    }
+  });
+}
+
 function bindReportFilter() {
   $("#report-filter").addEventListener("input", renderReports);
 }
 
-function bindCopilotConsole() {
-  $("#copilot-console-form").addEventListener("submit", async (event) => {
+function bindAiConsole() {
+  $("#ai-console-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    await sendCopilotConsoleInput();
+    await sendAiConsoleInput();
   });
-  $("#copilot-console-input").addEventListener("keydown", async (event) => {
+  $("#ai-console-input").addEventListener("keydown", async (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      await sendCopilotConsoleInput();
+      await sendAiConsoleInput();
     }
   });
-  $("#copilot-console-send-esc").addEventListener("click", async () => {
-    await sendCopilotConsoleInput({ text: "\x1b", submit: false, clearLine: false, sourceButtonId: "copilot-console-send-esc" });
+  $("#ai-console-send-esc").addEventListener("click", async () => {
+    await sendAiConsoleInput({ text: "\x1b", submit: false, clearLine: false, sourceButtonId: "ai-console-send-esc" });
   });
-  $("#copilot-console-send-tab").addEventListener("click", async () => {
-    await sendCopilotConsoleInput({ text: "\t", submit: false, clearLine: false, sourceButtonId: "copilot-console-send-tab" });
+  $("#ai-console-send-tab").addEventListener("click", async () => {
+    await sendAiConsoleInput({ text: "\t", submit: false, clearLine: false, sourceButtonId: "ai-console-send-tab" });
   });
 }
 
@@ -172,13 +308,14 @@ function bindStartupControls() {
       user_action: "toggle_copilot_window_visibility",
       hidden_window: !state.copilotWindowVisible,
     });
-    renderCopilotConsole();
+    renderAiConsole();
   });
 }
 
 async function refreshAll() {
   await Promise.allSettled([
     refreshStatusAndJobs(),
+    loadManuals(),
     loadTests(),
     loadMermaid(),
     loadReports(),
@@ -187,26 +324,42 @@ async function refreshAll() {
 }
 
 async function refreshStatusAndJobs() {
-  const consolePath = state.consoleCursor === null
-    ? `/api/copilot/console?limit=${CONSOLE_POLL_LIMIT}`
-    : `/api/copilot/console?cursor=${state.consoleCursor}&limit=${CONSOLE_POLL_LIMIT}`;
-  const [status, jobs, copilot, browser, consoleState] = await Promise.all([
+  const requests = [
     apiGet("/api/status", mockStatus),
     apiGet("/api/jobs", () => ({ jobs: state.jobs.length ? state.jobs : mockJobs() })),
-    apiGet("/api/session/copilot", () => state.status?.copilot_session || state.status?.copilot || {}),
-    apiGet("/api/session/browser", () => state.status?.browser_session || state.status?.browser || {}),
-    apiGet(consolePath, mockConsole),
-  ]);
+  ];
+  const aiConsolePath = state.aiConsoleCursor === null
+    ? `/api/ai-console?limit=${CONSOLE_POLL_LIMIT}`
+    : `/api/ai-console?cursor=${state.aiConsoleCursor}&limit=${CONSOLE_POLL_LIMIT}`;
+  requests.push(apiGet(aiConsolePath, mockAiConsole));
+  const [status, jobs, aiConsoleState] = await Promise.all(requests);
+  const copilot = status?.copilot_session || status?.copilot || {};
+  const browser = status?.browser_session || status?.browser || {};
   state.status = { ...status, copilot_session: copilot, browser_session: browser, copilot, browser };
   state.jobs = normalizeArray(jobs.jobs || jobs);
-  mergeConsoleState(consoleState);
+  if (aiConsoleState) {
+    mergeAiConsoleState(aiConsoleState);
+  } else if (state.aiConsole) {
+    state.aiConsole = { ...state.aiConsole, ...copilot };
+  }
   if (status?.mode) state.mode = status.mode;
+  if (isCopilotOnline(state.aiConsole || {})) {
+    state.aiConsoleStartInProgress = false;
+    state.aiConsoleStartError = "";
+  }
+  if (state.activeView === "ai-console") ensureCopilotSession();
   renderAll();
 }
 
 async function loadTests() {
   const payload = await apiGet("/api/regression/tests", mockTests);
   state.tests = normalizeArray(payload.tests || payload);
+}
+
+async function loadManuals() {
+  const payload = await apiGet("/api/manuals", mockManuals);
+  state.manuals = normalizeArray(payload.manuals || payload);
+  state.manualSections = normalizeArray(payload.sections || []);
 }
 
 async function loadMermaid() {
@@ -219,11 +372,43 @@ async function loadReports() {
   state.reports = normalizeArray(payload.reports || payload);
 }
 
-async function startSession(buttonId = "start-session-button") {
+async function startSession(buttonId = "start-session-button", options = {}) {
+  if (state.aiConsoleStartInProgress) return null;
+  state.aiConsoleStartInProgress = true;
+  state.aiConsoleStartError = "";
+  renderAiConsole();
   logEvent("button_clicked", { button_id: buttonId, user_action: "start_session" });
-  const payload = await apiPost("/api/session/start", { hidden_window: !state.copilotWindowVisible });
-  if (payload?.job || payload?.job_id) addOrUpdateJob(payload.job || payload);
-  await refreshStatusAndJobs();
+  try {
+    const payload = await apiPost("/api/session/start", { hidden_window: !state.copilotWindowVisible, restart_existing: true });
+    const jobStatus = String(payload?.status || "").toLowerCase();
+    const dispatchStatus = String(payload?.dispatch?.response?.status || "").toLowerCase();
+    if (!payload || (!jobStatus && !dispatchStatus)) {
+      state.aiConsoleStartError = "Start av Copilot-session misslyckades.";
+    } else if (jobStatus === "failed" || ["failed", "error", "blocked"].includes(dispatchStatus)) {
+      state.aiConsoleStartError = payload?.dispatch?.reason
+        || payload?.dispatch?.response?.error
+        || payload?.dispatch?.response?.copilot?.stderr
+        || "Start av Copilot-session misslyckades.";
+    }
+    if (payload?.job || payload?.job_id) addOrUpdateJob(payload.job || payload);
+    if (!options.skipRefresh) await refreshStatusAndJobs();
+    return payload;
+  } finally {
+    state.aiConsoleStartInProgress = false;
+    renderAiConsole();
+  }
+}
+
+async function ensureCopilotSession() {
+  const aiConsoleState = state.aiConsole || {};
+  if (isCopilotOnline(aiConsoleState) || state.aiConsoleStartInProgress) return;
+  if (aiConsoleState.source === "injected") return;
+  const status = aiConsoleState.status || "unknown";
+  if (!["missing", "not_running", "failed", "unavailable", "unknown", "mocked"].includes(status)) return;
+  const now = Date.now();
+  if (now - state.lastAutoStartAttempt < 15000) return;
+  state.lastAutoStartAttempt = now;
+  await startSession("copilot-auto-start");
 }
 
 async function createApiJob(path, body, fallbackFactory) {
@@ -233,50 +418,92 @@ async function createApiJob(path, body, fallbackFactory) {
   return job;
 }
 
-async function sendCopilotConsoleInput(options = {}) {
-  if (state.consoleSending) return;
-  const input = $("#copilot-console-input");
+async function sendAiConsoleInput(options = {}) {
+  if (state.aiConsoleSending) return;
+  const input = $("#ai-console-input");
   const hasExplicitText = Object.prototype.hasOwnProperty.call(options, "text");
   const text = hasExplicitText ? options.text : input.value;
   if (!String(text).trim() && !["\x1b", "\t"].includes(text)) return;
   const submit = options.submit !== false;
   const clearLine = options.clearLine !== false;
-  const sourceButtonId = options.sourceButtonId || "copilot-console-send";
-  state.consoleSending = true;
-  renderCopilotConsole();
-  logEvent("button_clicked", { button_id: sourceButtonId, user_action: "send_copilot_console_input" });
+  const sourceButtonId = options.sourceButtonId || "ai-console-send";
+  state.aiConsoleSending = true;
+  renderAiConsole();
+  logEvent("button_clicked", { button_id: sourceButtonId, user_action: "send_ai_console_input" });
   try {
-    const payload = await apiPost("/api/copilot/input", { text, submit, clear_line: clearLine });
+    const clientSentAt = new Date().toISOString();
+    state.lastAiConsoleInput = { text, submit, clear_line: clearLine, client_sent_at: clientSentAt };
+    const payload = await apiPost("/api/ai-console/input", { text, submit, clear_line: clearLine, client_sent_at: clientSentAt });
     if (!payload?.accepted) {
-      $("#copilot-console-hint").textContent = payload?.error || "Input kunde inte skickas.";
+      $("#ai-console-hint").textContent = payload?.error || "Input kunde inte skickas.";
       return;
     }
-    if (payload.console) state.console = payload.console;
-    if (payload.console) mergeConsoleState(payload.console);
+    state.lastAiConsoleInput = { ...state.lastAiConsoleInput, job_id: payload.job_id || null, accepted_at: payload.accepted_at || null, response: payload.response || null };
+    if (payload.console) state.aiConsole = payload.console;
+    if (payload.console) mergeAiConsoleState(payload.console);
     if (!hasExplicitText) input.value = "";
-    logEvent("copilot_console_input_sent", { status: "queued", job_id: payload.job_id, details: payload });
-    await refreshStatusAndJobs();
+    logEvent("ai_console_input_sent", { status: "queued", job_id: payload.job_id, details: payload });
+    $("#ai-console-hint").textContent = "Skickat till Copilot.";
   } finally {
-    state.consoleSending = false;
-    renderCopilotConsole();
+    state.aiConsoleSending = false;
+    renderAiConsole();
   }
 }
 
-function mergeConsoleState(consoleState) {
-  state.console = consoleState || mockConsole();
-  const transcript = state.console.transcript || null;
+function connectAiConsoleEvents() {
+  if (!("EventSource" in window) || state.aiConsoleEvents) return;
+  const cursorParam = state.aiConsoleCursor === null ? "" : `cursor=${encodeURIComponent(state.aiConsoleCursor)}&`;
+  const url = `${API_BASE}/api/ai-console/events?${cursorParam}limit=${CONSOLE_EVENT_LIMIT}`;
+  const events = new EventSource(url);
+  state.aiConsoleEvents = events;
+  events.addEventListener("open", () => {
+    state.aiConsoleEventsConnected = true;
+  });
+  events.addEventListener("console", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      state.lastAiConsoleEventAt = new Date().toISOString();
+      mergeAiConsoleState(payload);
+      if (isCopilotOnline(state.aiConsole || {})) state.aiConsoleStartInProgress = false;
+      renderAiConsole();
+    } catch (error) {
+      logEvent("api_request_failed", { method: "SSE", path: "/api/ai-console/events", error: error.message });
+    }
+  });
+  events.addEventListener("heartbeat", (event) => {
+    try {
+      const payload = JSON.parse(event.data);
+      state.lastAiConsoleEventAt = new Date().toISOString();
+      if (typeof payload?.cursor === "number") {
+        state.aiConsoleCursor = payload.cursor;
+      }
+    } catch (error) {
+      logEvent("api_request_failed", { method: "SSE", path: "/api/ai-console/events", error: error.message });
+    }
+  });
+  events.addEventListener("error", () => {
+    state.aiConsoleEventsConnected = false;
+    events.close();
+    state.aiConsoleEvents = null;
+    setTimeout(connectAiConsoleEvents, 1000);
+  });
+}
+
+function mergeAiConsoleState(aiConsoleState) {
+  state.aiConsole = aiConsoleState || mockAiConsole();
+  const transcript = state.aiConsole.transcript || null;
   if (transcript && typeof transcript.next_cursor === "number") {
     if (["tail", "reset_tail", "fallback_tail", "missing"].includes(transcript.mode)) {
-      state.consoleTranscript = transcript.text || "";
+      state.aiConsoleTranscript = transcript.text || "";
     } else if (transcript.mode === "delta" && transcript.text) {
-      state.consoleTranscript = `${state.consoleTranscript}${transcript.text}`;
+      state.aiConsoleTranscript = `${state.aiConsoleTranscript}${transcript.text}`;
     }
-    state.consoleCursor = transcript.next_cursor;
+    state.aiConsoleCursor = transcript.next_cursor;
   } else {
-    state.consoleTranscript = state.console.transcript_tail || state.console.last_output_tail || state.consoleTranscript;
+    state.aiConsoleTranscript = state.aiConsole.transcript_tail || state.aiConsole.last_output_tail || state.aiConsoleTranscript;
   }
-  if (state.consoleTranscript.length > MAX_CONSOLE_BUFFER) {
-    state.consoleTranscript = state.consoleTranscript.slice(-MAX_CONSOLE_BUFFER);
+  if (state.aiConsoleTranscript.length > MAX_CONSOLE_BUFFER) {
+    state.aiConsoleTranscript = state.aiConsoleTranscript.slice(-MAX_CONSOLE_BUFFER);
   }
 }
 
@@ -310,7 +537,8 @@ async function apiRequest(path, options, fallbackFactory) {
 function renderAll() {
   renderStatus();
   renderDashboard();
-  renderCopilotConsole();
+  renderManuals();
+  renderAiConsole();
   renderTests();
   renderMermaidGraph();
   renderReports();
@@ -351,49 +579,145 @@ function renderDashboard() {
   $("#card-error-tail").textContent = failed?.output_tail || "Fel visas här när backend rapporterar dem.";
 }
 
-function renderCopilotConsole() {
-  const consoleState = state.console || mockConsole();
-  const status = consoleState.status || "unknown";
-  const queue = consoleState.input_queue || {};
-  const heartbeat = consoleState.heartbeat || {};
-  const isOnline = isCopilotOnline(consoleState);
+function filteredManuals() {
+  const filter = $("#manual-filter")?.value.trim().toLowerCase() || "";
+  return state.manuals.filter((manual) => `${manual.title || ""} ${manual.name || ""} ${manual.path || ""} ${manual.section_label || ""}`.toLowerCase().includes(filter));
+}
+
+function renderManuals() {
+  const manuals = filteredManuals();
+  const sectionCounts = new Map(state.manualSections.map((section) => [section.section_key, section.count || 0]));
+  const sectionAvailability = new Map(state.manualSections.map((section) => [section.section_key, Boolean(section.available)]));
+  const guideCount = state.manuals.filter((manual) => String(manual.name || "").toLowerCase() === "readme.md").length;
+  const countPill = $("#manuals-count-pill");
+  if (countPill) countPill.textContent = `${manuals.length} av ${state.manuals.length} manualer`;
+  const summary = $("#manuals-summary");
+  if (summary) {
+    summary.textContent = state.manuals.length
+      ? "Manualbiblioteket läses direkt från repositoryt och öppnas som Markdown i frontend."
+      : "Inga publicerade manualer hittades ännu under manuals-katalogen.";
+  }
+  setManualSectionCard("csc", sectionCounts.get("csc") || 0, "Publicerade CSC-manualer och bibliotekets läsordning.", sectionAvailability.get("csc"));
+  setManualSectionCard("serviceportal", sectionCounts.get("serviceportal") || 0, "Serviceportalsmanualer visas här när de publiceras.", sectionAvailability.get("serviceportal"));
+  setManualSectionCard("clients", sectionCounts.get("clients") || 0, "Klient- och företagsmanualer visas här när de publiceras.", sectionAvailability.get("clients"));
+  setManualSectionCard("guides", guideCount, "README- och indexdokument som guidar användaren till rätt manualpaket.", guideCount > 0);
+  $("#manual-list").innerHTML = manuals.map((manual) => {
+    const manualId = manual.manual_id || manual.id;
+    const active = manualId === state.activeManualId;
+    return `
+    <article class="item ${active ? "active-item" : ""}" data-testid="manual-item">
+      <h3>${escapeHtml(manual.title || manual.name || manualId)}</h3>
+      <div class="item-meta">${escapeHtml(manual.section_label || "")}</div>
+      <div class="item-meta">${escapeHtml(manual.path || "")}</div>
+      <div class="item-actions"><button data-testid="open-manual-button" data-manual-id="${escapeAttr(manualId)}">Öppna manual</button></div>
+    </article>
+  `;
+  }).join("") || `
+    <article class="item warning" data-testid="manuals-empty-state">
+      <h3>Inga manualer matchar filtret</h3>
+      <p>Justera filtertexten eller publicera fler Markdown-manualer under <code>manuals</code>.</p>
+    </article>
+  `;
+  $$("[data-manual-id]").forEach((button) => {
+    button.addEventListener("click", () => openManual(button.dataset.manualId));
+  });
+}
+
+function setManualSectionCard(sectionKey, count, summaryText, available) {
+  const countElement = $(`#manuals-section-${sectionKey}-count`);
+  const summaryElement = $(`#manuals-section-${sectionKey}-summary`);
+  if (countElement) {
+    const noun = sectionKey === "guides" ? "index/manualer" : "manualer";
+    countElement.textContent = `${count} ${noun}`;
+  }
+  if (summaryElement) {
+    summaryElement.textContent = available
+      ? summaryText
+      : "Ingen katalog eller inga publicerade manualer hittades ännu för detta område.";
+  }
+}
+
+async function openManual(manualId, options = {}) {
+  logEvent("button_clicked", { button_id: "open-manual-button", user_action: "open_manual", manual_id: manualId });
+  const manual = await apiGet(`/api/manuals/${encodeURIComponent(manualId)}`, () => mockManual(manualId));
+  state.activeManualId = manual.manual_id || manual.id || manualId;
+  $("#manual-reader").innerHTML = markdownToHtml(manual.markdown || manual.content || "Manualen saknar innehåll.");
+  if (!options.skipRenderList) renderManuals();
+}
+
+function renderAiConsole() {
+  const aiConsoleState = state.aiConsole || mockAiConsole();
+  const status = aiConsoleState.status || "unknown";
+  const queue = aiConsoleState.input_queue || {};
+  const heartbeat = aiConsoleState.heartbeat || {};
+  const isOnline = isCopilotOnline(aiConsoleState);
   const rawOutput = isOnline
-    ? (state.consoleTranscript || consoleState.transcript_tail || consoleState.last_output_tail || "Connected - waiting for Copilot output.")
+    ? (state.aiConsoleTranscript || aiConsoleState.transcript_tail || aiConsoleState.last_output_tail || "Connected - waiting for Copilot output.")
+    : state.aiConsoleStartInProgress
+    ? "Starting Copilot session - please wait..."
     : "Disconnected - please wait until Copilot is online";
   const output = formatCopilotTranscriptForDisplay(rawOutput);
   const outputHtml = copilotTranscriptToHtml(output);
-  const windowExpected = Boolean(consoleState.visible_window_expected);
+  const windowExpected = Boolean(aiConsoleState.visible_window_expected);
   const windowMatches = isOnline && windowExpected === state.copilotWindowVisible;
-  const modelVerified = isOnline && Boolean(consoleState.model_verified && consoleState.model_hint);
-  const permissionsVerified = isOnline && Boolean(consoleState.permissions_verified && consoleState.permissions_hint);
-  setSemanticBadge($("#copilot-console-status"), `Status: ${status}${queue.pending ? ` · kö ${queue.pending}` : ""}`, statusBadgeTone(status, isOnline));
-  setSemanticBadge($("#copilot-window-mode"), `Motor: ${state.copilotWindowVisible ? "synlig" : "osynlig"}`, windowMatches ? "green" : (isOnline ? "yellow" : "gray"));
-  setSemanticBadge($("#copilot-console-model"), modelVerified ? `Modell: ${consoleState.model_hint}` : "Modell: ej verifierad", modelVerified ? "green" : (isOnline ? "yellow" : "gray"));
-  setSemanticBadge($("#copilot-console-permissions"), permissionsVerified ? `Permissions: ${consoleState.permissions_hint}` : "Permissions: ej verifierad", permissionsVerified ? "green" : (isOnline ? "yellow" : "gray"));
-  $("#copilot-console-send").textContent = state.consoleSending ? "Skickar..." : "Skicka";
-  $("#copilot-console-send").disabled = state.consoleSending;
-  $("#copilot-console-send-esc").disabled = state.consoleSending;
-  $("#copilot-console-send-tab").disabled = state.consoleSending;
-  const outputElement = $("#copilot-console-output");
+  const modelVerified = isOnline && Boolean(aiConsoleState.model_verified && aiConsoleState.model_hint);
+  const permissionsVerified = isOnline && Boolean(aiConsoleState.permissions_verified && aiConsoleState.permissions_hint);
+  const projectVerified = isOnline && Boolean(aiConsoleState.project_verified && aiConsoleState.project_name);
+  const commandReady = isOnline && Boolean(aiConsoleState.command_ready);
+  setSemanticBadge($("#ai-console-status"), { label: "Status", value: `${status}${queue.pending ? ` · kö ${queue.pending}` : ""}`, icon: "status" }, statusBadgeTone(status, isOnline));
+  setSemanticBadge($("#copilot-window-mode"), { label: "Motor", value: state.copilotWindowVisible ? "synlig" : "osynlig", icon: "motor" }, windowMatches ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-model"), { label: "Modell", value: modelVerified ? aiConsoleState.model_hint : "ej verifierad", icon: "model" }, modelVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-permissions"), { label: "Permissions", value: permissionsVerified ? aiConsoleState.permissions_hint : "ej verifierad", icon: "permissions" }, permissionsVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-project"), { label: "Projekt", value: projectVerified ? aiConsoleState.project_name : "okänt", icon: "project" }, projectVerified ? "green" : (isOnline ? "yellow" : "gray"));
+  setSemanticBadge($("#ai-console-ready"), { label: "Prompt", value: commandReady ? "redo" : "väntar", icon: "prompt" }, commandReady ? "green" : (isOnline ? "yellow" : "gray"));
+  $("#ai-console-send").textContent = state.aiConsoleSending ? "Skickar..." : "Skicka";
+  $("#ai-console-send").disabled = state.aiConsoleSending;
+  $("#ai-console-send-esc").disabled = state.aiConsoleSending;
+  $("#ai-console-send-tab").disabled = state.aiConsoleSending;
+  const startButton = $("#copilot-start-session-button");
+  startButton.querySelector(".console-status-action-label").textContent = state.aiConsoleStartInProgress ? "Startar..." : "Starta";
+  startButton.disabled = state.aiConsoleStartInProgress;
+  startButton.setAttribute("aria-label", state.aiConsoleStartInProgress ? "Startar Copilot CLI-session" : "Starta Copilot CLI-session");
+  startButton.classList.toggle("console-status-action-starting", state.aiConsoleStartInProgress);
+  const outputElement = $("#ai-console-output");
   const shouldStickToBottom = outputElement.scrollTop + outputElement.clientHeight >= outputElement.scrollHeight - 12;
   if (outputElement.dataset.renderedTranscript !== outputHtml) {
     outputElement.innerHTML = outputHtml;
     outputElement.dataset.renderedTranscript = outputHtml;
+    const renderedAt = new Date().toISOString();
+    const renderSnapshot = {
+      rendered_at: renderedAt,
+      status,
+      transcript_cursor: heartbeat.next_cursor ?? state.aiConsoleCursor,
+      transcript_length: output.length,
+      streamed_at: aiConsoleState.streamed_at || null,
+      server_timestamp: aiConsoleState.server_timestamp || null,
+      last_output_chunk_at: aiConsoleState.last_output_chunk_at || null,
+      last_output_sequence: aiConsoleState.last_output_sequence ?? null,
+      project_name: aiConsoleState.project_name || null,
+      permissions_verified: permissionsVerified,
+      command_ready: commandReady,
+      last_event_received_at: state.lastAiConsoleEventAt,
+      last_input: state.lastAiConsoleInput,
+    };
+    state.lastAiConsoleRender = renderSnapshot;
+    window.__copilotAdminLastAiConsoleRender = renderSnapshot;
+    logEvent("ai_console_rendered", { status, transcript_cursor: renderSnapshot.transcript_cursor, transcript_length: output.length, rendered_at: renderedAt, streamed_at: renderSnapshot.streamed_at, last_output_chunk_at: renderSnapshot.last_output_chunk_at, command_ready: commandReady });
     if (shouldStickToBottom) outputElement.scrollTop = outputElement.scrollHeight;
   }
-  $("#copilot-console-hint").textContent = consoleState.user_input_required
+  $("#ai-console-hint").textContent = aiConsoleState.user_input_required
     ? "Copilot väntar på input."
-    : (state.consoleSending ? "Skickar till Copilot..." : "Redo.");
-  const signature = `${status}|${Boolean(consoleState.user_input_required)}|${output.length}|${queue.pending || 0}|${heartbeat.next_cursor ?? ""}`;
-  if (state.lastConsoleSignature !== signature) {
-    state.lastConsoleSignature = signature;
-    logEvent("copilot_console_refreshed", { status, user_input_required: Boolean(consoleState.user_input_required), transcript_length: output.length, transcript_cursor: heartbeat.next_cursor ?? state.consoleCursor });
+    : (state.aiConsoleStartInProgress ? "Startar eller återansluter Copilot-session..." : (state.aiConsoleStartError || (state.aiConsoleSending ? "Skickar till Copilot..." : "Redo. Vanliga prompts kompletteras automatiskt med standardinstruktion.")));
+  const signature = `${status}|${Boolean(aiConsoleState.user_input_required)}|${output.length}|${queue.pending || 0}|${heartbeat.next_cursor ?? ""}`;
+  if (state.lastAiConsoleSignature !== signature) {
+    state.lastAiConsoleSignature = signature;
+    logEvent("ai_console_refreshed", { status, user_input_required: Boolean(aiConsoleState.user_input_required), transcript_length: output.length, transcript_cursor: heartbeat.next_cursor ?? state.aiConsoleCursor });
   }
 }
 
-function isCopilotOnline(consoleState) {
-  const status = consoleState.status || "unknown";
-  return Boolean(consoleState.running) || ["running", "user_input_required"].includes(status);
+function isCopilotOnline(aiConsoleState) {
+  const status = aiConsoleState.status || "unknown";
+  return Boolean(aiConsoleState.running) || ["running", "user_input_required"].includes(status);
 }
 
 function statusBadgeTone(status, isOnline) {
@@ -404,12 +728,33 @@ function statusBadgeTone(status, isOnline) {
 }
 
 function setSemanticBadge(element, text, tone) {
-  element.textContent = text;
-  element.className = `pill semantic-badge semantic-${tone}`;
+  const payload = typeof text === "string"
+    ? { label: text.split(":")[0] || text, value: text.includes(":") ? text.split(":").slice(1).join(":").trim() : text, icon: "status" }
+    : text;
+  const icon = CONSOLE_TILE_ICONS[payload.icon] || CONSOLE_TILE_ICONS.status;
+  element.className = `console-status-tile semantic-badge semantic-${tone}`;
+  element.dataset.label = payload.label;
+  element.dataset.value = payload.value;
+  element.setAttribute("aria-label", `${payload.label}: ${payload.value}`);
+  element.innerHTML = `
+    <span class="console-status-icon">${icon}</span>
+    <span class="console-status-label">${escapeHtml(payload.label)}</span>
+    <span class="console-status-value">${escapeHtml(payload.value)}</span>
+  `;
 }
 
 function renderTests() {
   const select = $("#regression-select");
+  if (!state.tests.length) {
+    select.innerHTML = "";
+    $("#regression-list").innerHTML = `
+    <article class="item warning" data-testid="regression-api-warning">
+      <h3>Inga regressionstester kunde läsas</h3>
+      <p>Frontend kunde inte hämta <code>/api/regression/tests</code>. Kontrollera att Copilot-admin backend körs mot rätt repository och starta om adminstacken vid behov.</p>
+    </article>
+  `;
+    return;
+  }
   select.innerHTML = state.tests.map((test) => {
     const id = test.test_id || test.id || test.catalog_key;
     return `<option value="${escapeAttr(id)}">${escapeHtml(test.catalog_key || id)} · ${escapeHtml(id)} · ${escapeHtml(test.title || test.summary || "")}</option>`;
@@ -421,6 +766,7 @@ function renderTests() {
       <h3>${escapeHtml(test.catalog_key || "")} · ${escapeHtml(id || "Regressionstest")}</h3>
       <p>${escapeHtml(test.summary || "Ingen sammanfattning.")}</p>
       <div class="item-meta">Beroenden: ${escapeHtml((test.dependencies || []).join(", ") || "inga")}</div>
+      <div class="item-meta">Fil: ${escapeHtml(test.file_path || test.file || "saknas")}</div>
       <div class="item-actions">
         <button data-testid="run-regression-item-button" data-run-test-id="${escapeAttr(id)}">Kör detta test</button>
       </div>
@@ -688,18 +1034,9 @@ function wrapText(text, maxChars) {
 }
 
 function formatCopilotTranscriptForDisplay(text) {
-  return applyTerminalRedrawControls(removeCopilotTimerRedrawArtifacts(String(text || "")))
+  return applyTerminalRedrawControls(String(text || ""))
     .replace(/\x1B(?:\][^\x07]*(?:\x07|\x1B\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g, "")
-    .replace(/[^\S\r\n]+$/gm, "")
-    .replace(/\n{4,}/g, "\n\n\n")
-    .trimEnd();
-}
-
-function removeCopilotTimerRedrawArtifacts(text) {
-  return text.replace(
-    /([╰└][─━═┄┈┉\s]+[╯┘])(?:[0-9ms/ \b]+)(?=\s{2,}[\p{L}$●⌄∨/])/gu,
-    "$1\n",
-  );
+    .replace(/\u0000/g, "");
 }
 
 function applyTerminalRedrawControls(text) {
@@ -741,77 +1078,47 @@ function applyTerminalRedrawControls(text) {
 function copilotTranscriptToHtml(text) {
   const lines = String(text || "").split("\n");
   const html = [];
-  let blankCount = 0;
-  let inThought = false;
   for (let index = 0; index < lines.length; index += 1) {
     const rawLine = lines[index];
-    const line = normalizeCopilotTranscriptLine(rawLine);
-    const trimmed = line.trim();
-    if (isCopilotTimerArtifact(trimmed)) continue;
-    if (!trimmed || isCopilotBorderLine(trimmed)) {
-      blankCount += 1;
-      if (blankCount <= 1) html.push('<div class="copilot-line spacer"></div>');
+    const analysisLine = normalizeCopilotTranscriptLine(rawLine);
+    const trimmed = analysisLine.trim();
+    const special = classifyCopilotLine(trimmed);
+    const classes = ["copilot-line"];
+    if (!rawLine.length) {
+      classes.push("spacer");
+      html.push(`<div class="${classes.join(" ")}">&nbsp;</div>`);
       continue;
     }
-    blankCount = 0;
-    const special = classifyCopilotLine(trimmed);
-    if (special) inThought = false;
     if (/^[⌄∨]\s*Thought for/i.test(trimmed)) {
-      inThought = true;
-      html.push(`<div class="copilot-line thought-heading">${escapeHtml(trimmed.replace(/^∨/, "⌄"))}</div>`);
+      classes.push("thought-heading");
     } else if (special === "message") {
-      html.push(`<div class="copilot-line message">${escapeHtml(trimmed)}</div>`);
+      classes.push("message");
     } else if (special === "shell") {
-      html.push(`<div class="copilot-line shell-call">${escapeHtml(trimmed)}</div>`);
+      classes.push("shell-call");
     } else if (special === "command-title") {
-      html.push(`<div class="copilot-line command-title">${escapeHtml(trimmed)}</div>`);
+      classes.push("command-title");
     } else if (special === "command-code") {
-      const commandLines = [trimmed];
-      while (index + 1 < lines.length) {
-        const nextLine = normalizeCopilotTranscriptLine(lines[index + 1]).trim();
-        if (!isContinuationCommandLine(nextLine)) break;
-        commandLines.push(nextLine);
-        index += 1;
-      }
-      html.push(commandCodeToHtml(commandLines.join(" ")));
+      classes.push("command-code");
     } else if (special === "question") {
-      html.push(`<div class="copilot-line question">${escapeHtml(trimmed)}</div>`);
+      classes.push("question");
     } else if (special === "selected-option") {
-      html.push(`<div class="copilot-line selected-option">${escapeHtml(trimmed.replace(/^>\s*/, "❯ "))}</div>`);
+      classes.push("selected-option");
     } else if (special === "option") {
-      html.push(`<div class="copilot-line option">${escapeHtml(trimmed)}</div>`);
+      classes.push("option");
     } else if (special === "navigation-hint") {
-      html.push(`<div class="copilot-line navigation-hint">${escapeHtml(trimmed)}</div>`);
+      classes.push("navigation-hint");
     } else if (trimmed.startsWith("Disconnected -")) {
-      html.push(`<div class="copilot-line disconnected">${escapeHtml(trimmed)}</div>`);
-    } else if (inThought) {
-      html.push(`<div class="copilot-line thought-body">${escapeHtml(trimmed)}</div>`);
+      classes.push("disconnected");
     } else {
-      html.push(`<div class="copilot-line plain">${escapeHtml(trimmed)}</div>`);
+      classes.push("plain");
     }
+    html.push(`<div class="${classes.join(" ")}">${escapeHtml(rawLine)}</div>`);
   }
   return html.join("");
 }
 
 function normalizeCopilotTranscriptLine(line) {
-  return String(line || "")
-    .replace(/[│┃║╎┆]/g, "")
-    .replace(/[╭╮╰╯┌┐└┘]/g, "")
-    .replace(/^[\s─━═┄┈┉-]+$/, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .trimEnd();
-}
-
-function isCopilotBorderLine(line) {
-  return /^[─━═┄┈┉\s-]+$/.test(line);
-}
-
-function isCopilotTimerArtifact(line) {
-  if (!line) return false;
-  const compact = line.replace(/\s+/g, "");
-  const timerMatches = compact.match(/\d+(?:m|s)/g) || [];
-  const digitRuns = compact.match(/\d{4,}/g) || [];
-  return timerMatches.length >= 2 || digitRuns.length >= 2 || (/^[0-9ms/]+$/.test(compact) && compact.length > 8);
+  return String(line || "").replace(/\u00A0/g, " ").trimEnd();
 }
 
 function classifyCopilotLine(line) {
@@ -820,17 +1127,15 @@ function classifyCopilotLine(line) {
   if (/^Run safe host-runner smoke tests\b/.test(line)) return "command-title";
   if (/^\$ErrorActionPreference=/.test(line) || /^\$targets\s*=/.test(line) || /^host-runner-/.test(line)) return "command-code";
   if (/^Do you want to run this command\?/.test(line)) return "question";
-  if (/^(❯|›|>)\s*1\.\s+/.test(line)) return "selected-option";
+  if (/^(❯|›|>)\s*\d+\.\s+/.test(line)) return "selected-option";
   if (/^\d+\.\s+/.test(line)) return "option";
-  if (/^↑\/↓\s+to navigate/.test(line)) return "navigation-hint";
+  if (/^↑\/↓\s+to (navigate|select)/.test(line) || /enter to (select|confirm)/.test(line)) return "navigation-hint";
   return null;
 }
 
 function isContinuationCommandLine(line) {
   return Boolean(line)
     && !classifyCopilotLine(line)
-    && !isCopilotBorderLine(line)
-    && !isCopilotTimerArtifact(line)
     && !/^(Copilot is attempting|Do you want|Question|User selected|Check if|C:\\|↑\/↓|[❯›>]\s*\d+\.|\d+\.)/.test(line);
 }
 
@@ -988,12 +1293,25 @@ function mockStatus() {
 }
 
 function mockTests() {
+  return { tests: [] };
+}
+
+function mockManuals() {
   return {
-    tests: [
-      { id: "A", title: "Kontraktssökning och serviceportal-login", summary: "Verifierar grundflöde och login.", dependencies: [] },
-      { id: "B", title: "Nytt kontrakt på migrerat DS", summary: "Verifierar köpflöde efter migreringsval.", dependencies: ["A"] },
-      { id: "C", title: "Checkout och skapa kontrakt", summary: "Verifierar checkoutdata och avtalsskapande.", dependencies: ["B"] },
-      { id: "D", title: "Nytt kontrakt på ej migrerat DS", summary: "Verifierar köpbar produkt för non-migrated DS.", dependencies: ["A"] },
+    sections: [
+      { section_key: "csc", section_label: "Kundtjänst / CSC", count: 1, available: true },
+      { section_key: "serviceportal", section_label: "Serviceportalen", count: 0, available: false },
+      { section_key: "clients", section_label: "Klientmanualer", count: 0, available: false },
+    ],
+    manuals: [
+      {
+        manual_id: "mock-manual",
+        title: "CSC-manual i mockläge",
+        name: "README.md",
+        path: "manuals\\csc_user_manuals\\README.md",
+        section_key: "csc",
+        section_label: "Kundtjänst / CSC",
+      },
     ],
   };
 }
@@ -1006,12 +1324,12 @@ function mockReports() {
   return { reports: [{ id: "latest", title: "Mockad senaste rapport", date: new Date().toISOString().slice(0, 10), status: "demo" }] };
 }
 
-function mockConsole() {
+function mockAiConsole() {
   return {
     status: "mocked",
     running: false,
-    transcript_tail: "Copilot-konsolen kör i mockläge tills backend/host-runner svarar.",
-    transcript: { mode: "fallback_tail", text: "Copilot-konsolen kör i mockläge tills backend/host-runner svarar.", cursor: null, next_cursor: 66, size: 66, truncated: false },
+    transcript_tail: "AI-konsolen kör i mockläge tills backend/host-runner svarar.",
+    transcript: { mode: "fallback_tail", text: "AI-konsolen kör i mockläge tills backend/host-runner svarar.", cursor: null, next_cursor: 66, size: 66, truncated: false },
     heartbeat: { next_cursor: 66, transcript_size: 66, server_timestamp: new Date().toISOString() },
     input_queue: { pending: 0 },
     model_hint: null,
@@ -1024,6 +1342,10 @@ function mockConsole() {
 
 function mockReport(reportId) {
   return { id: reportId, markdown: `# ${reportId}\n\n**Status:** demo\n\n- Backend är inte ansluten.\n- När backend finns hämtas rapporten från \`/api/reports/${reportId}\`.` };
+}
+
+function mockManual(manualId) {
+  return { id: manualId, markdown: `# ${manualId}\n\n**Status:** demo\n\n- Backend är inte ansluten.\n- När backend finns hämtas manualen från \`/api/manuals/${manualId}\`.` };
 }
 
 function mockJobs() {

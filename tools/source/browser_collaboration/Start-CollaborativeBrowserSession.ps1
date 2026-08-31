@@ -24,6 +24,46 @@ function Get-DebugInfo([int]$DebugPort) {
     }
 }
 
+function Get-BrowserOwnerFromDebugPort {
+    param(
+        [Parameter(Mandatory = $true)][int]$DebugPort,
+        [string]$ExpectedProfileDir
+    )
+
+    $connection = Get-NetTCPConnection -State Listen -LocalPort $DebugPort -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $connection -or -not $connection.OwningProcess) {
+        return $null
+    }
+
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $($connection.OwningProcess)" -ErrorAction SilentlyContinue
+    if (-not $process) {
+        return $null
+    }
+
+    $commandLine = [string]$process.CommandLine
+    if (-not $commandLine) {
+        return $null
+    }
+
+    if ($commandLine.IndexOf("--remote-debugging-port=$DebugPort", [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        return $null
+    }
+
+    if ($ExpectedProfileDir) {
+        $normalizedProfileDir = [System.IO.Path]::GetFullPath($ExpectedProfileDir)
+        if ($commandLine.IndexOf($normalizedProfileDir, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            return $null
+        }
+    }
+
+    return [pscustomobject]@{
+        processId = [int]$process.ProcessId
+        browserPath = [string]$process.ExecutablePath
+        commandLine = $commandLine
+    }
+}
+
 function Resolve-BrowserPath([string]$RequestedBrowser) {
     $entries = @(
         @{ Name = 'edge'; Path = 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe' },
@@ -67,11 +107,13 @@ if ($existing) {
         throw "Remote debugging port $Port is already in use. Re-run with -ReuseExisting or choose another -Port."
     }
 
+    $owner = Get-BrowserOwnerFromDebugPort -DebugPort $Port -ExpectedProfileDir $ProfileDir
+
     [pscustomobject]@{
         browser = $existing.Browser
-        browserPath = $null
+        browserPath = if ($owner) { $owner.browserPath } else { $null }
         port = $Port
-        processId = $null
+        processId = if ($owner) { $owner.processId } else { $null }
         profileDir = $ProfileDir
         startUrl = $Url
         debugVersionEndpoint = "http://127.0.0.1:$Port/json/version"

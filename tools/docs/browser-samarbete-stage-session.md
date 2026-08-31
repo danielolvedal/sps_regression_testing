@@ -2,6 +2,8 @@
 
 Detta dokument fastställer hur en SPS-session ska startas när arbetet kräver inloggning, UI-analys eller gemensam handläggning i Kundtjänstportalen.
 
+> För **Copilot-admins localhost-UI** används inte detta stage-skript som förstahandsval. Se `tools\docs\copilot-admin-browser-lagen.md` och `runtime\start-collaborative-copilot-admin-browser.ps1` för den separata synliga admin-browsern.
+
 ## Mål
 
 Vi ska kunna:

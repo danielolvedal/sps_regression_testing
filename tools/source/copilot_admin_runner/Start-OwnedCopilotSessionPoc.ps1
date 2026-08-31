@@ -14,12 +14,14 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 $logDir = Join-Path $repoRoot 'tmp\copilot_admin_runner_logs'
 $stateDir = Join-Path $repoRoot 'tmp\copilot_admin_runner_state'
+$registryScript = Join-Path $PSScriptRoot 'project_session_registry.py'
 $null = New-Item -ItemType Directory -Path $logDir -Force
 $null = New-Item -ItemType Directory -Path $stateDir -Force
 if (-not $StatePath) {
     $StatePath = Join-Path $stateDir 'owned-copilot-session-poc.json'
 }
 $logPath = Join-Path $logDir ("owned-copilot-poc-{0}.jsonl" -f (Get-Date).ToUniversalTime().ToString('yyyyMMdd'))
+$sessionKey = "owned-terminal-poc::$StatePath"
 
 function Write-OwnedCopilotLog {
     param(
@@ -188,6 +190,7 @@ $state = [ordered]@{
     limitation = 'The session is visible and collaborative, but stdin/stdout are owned by the terminal, not redirected to the runner. Use terminal binding/input adapter for commands.'
 }
 $state | ConvertTo-Json -Depth 10 | Set-Content -Path $StatePath -Encoding UTF8
+python $registryScript upsert --session-key $sessionKey --kind 'owned-terminal-poc' --source 'tools\source\copilot_admin_runner\Start-OwnedCopilotSessionPoc.ps1' --status 'started' --control-method 'process-id' --state-path $StatePath --process-id ([string]$process.Id) --note 'visible owned terminal Copilot POC' | Out-Null
 Write-OwnedCopilotLog -Event 'visible_terminal_started' -Details @{
     title = $Title
     shell_process_id = $process.Id

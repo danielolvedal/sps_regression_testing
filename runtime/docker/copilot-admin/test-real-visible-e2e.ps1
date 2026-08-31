@@ -3,8 +3,9 @@ param(
     [int]$HostRunnerPort = 8876,
     [int]$BackendPort = 8877,
     [int]$BrowserPort = 9322,
-    [int]$TimeoutSeconds = 120,
+    [int]$TimeoutSeconds = 180,
     [switch]$RestartExisting,
+    [switch]$ShowTestCopilotWindow,
     [switch]$DryRun
 )
 
@@ -15,8 +16,11 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 $runner = Join-Path $repoRoot 'tools\source\copilot_admin_runner\copilot_admin_runner.py'
 $backend = Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\backend\app.py'
 $frontend = Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\frontend'
+$e2eDir = Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\e2e'
+$playwrightScript = Join-Path $e2eDir 'real_visible_playwright_e2e.mjs'
 $tmpDir = Join-Path $repoRoot 'tmp\copilot_admin_control_plane\real_visible_e2e'
 $isolatedRunnerStateDir = Join-Path $tmpDir 'runner_state'
+$artifactPath = Join-Path $tmpDir 'real-visible-e2e-artifact.json'
 $null = New-Item -ItemType Directory -Path $tmpDir -Force
 $null = New-Item -ItemType Directory -Path $isolatedRunnerStateDir -Force
 
@@ -31,11 +35,16 @@ if ($DryRun) {
         runner = $runner
         backend = $backend
         frontend = $frontend
+        e2e_dir = $e2eDir
+        playwright_script = $playwrightScript
         tmp_dir = $tmpDir
         isolated_runner_state_dir = $isolatedRunnerStateDir
+        artifact_path = $artifactPath
         browser_port = $BrowserPort
-        would_start_hidden_isolated_copilot = $true
-        would_start_isolated_browser_port = $true
+        would_start_hidden_isolated_copilot_helper = -not [bool]$ShowTestCopilotWindow
+        would_start_visible_isolated_copilot_test_session = [bool]$ShowTestCopilotWindow
+        would_keep_collaborative_browser_visible = $true
+        would_use_isolated_runner_state = $true
     } | ConvertTo-Json -Depth 10
     exit 0
 }
@@ -76,6 +85,8 @@ function Wait-JsonEndpoint {
 
 $hostRunnerProcess = $null
 $backendProcess = $null
+$sessionStopped = $false
+$previousRunnerStateDir = $env:COPILOT_ADMIN_RUNNER_STATE_DIR
 
 try {
     $hostRunnerOut = Join-Path $tmpDir 'host-runner-api.out.log'
@@ -83,7 +94,6 @@ try {
     $backendOut = Join-Path $tmpDir 'backend.out.log'
     $backendErr = Join-Path $tmpDir 'backend.err.log'
 
-    $previousRunnerStateDir = $env:COPILOT_ADMIN_RUNNER_STATE_DIR
     $env:COPILOT_ADMIN_RUNNER_STATE_DIR = $isolatedRunnerStateDir
     $hostRunnerProcess = Start-Process -FilePath 'python' -ArgumentList @(
         $runner,
@@ -97,6 +107,7 @@ try {
     $env:COPILOT_ADMIN_HOST_RUNNER_URL = $hostRunnerUrl
     $env:COPILOT_ADMIN_BACKEND_HOST = '127.0.0.1'
     $env:COPILOT_ADMIN_BACKEND_PORT = [string]$BackendPort
+    $env:COPILOT_ADMIN_SESSION_BROWSER_PORT = [string]$BrowserPort
 
     $backendProcess = Start-Process -FilePath 'python' -ArgumentList @(
         $backend,
@@ -107,126 +118,46 @@ try {
     $null = Wait-JsonEndpoint -Uri "$hostRunnerUrl/health" -Timeout 30
     $null = Wait-JsonEndpoint -Uri "$backendUrl/api/health" -Timeout 30
 
-    $preflight = Invoke-JsonRequest -Method GET -Uri "$hostRunnerUrl/status"
-    $copilotAlreadyRunning = [bool]$preflight.copilot_session.running
-    $browserAlreadyRunning = [bool]$preflight.browser_session.running
-    $sessionJob = $null
-
-    if ($copilotAlreadyRunning -and -not $RestartExisting) {
-        $browserStart = $null
-        if (-not $browserAlreadyRunning) {
-            $browserStart = Invoke-JsonRequest -Method POST -Uri "$hostRunnerUrl/browser/start" -Body @{ port = $BrowserPort }
-        }
-        $sessionJob = [ordered]@{
-            status = 'reused_existing'
-            reason = 'Existing host-runner-owned Copilot session was already running; real E2E did not open another Copilot window.'
-            browser_start = $browserStart
-        }
-    } else {
-        $sessionPayload = @{
-            restart_existing = [bool]$RestartExisting
-            startup_model = 'gpt-5-mini'
-            hidden_window = $true
-            port = $BrowserPort
-        }
-        $sessionJob = Invoke-JsonRequest -Method POST -Uri "$backendUrl/api/session/start" -Body $sessionPayload
-        if ($sessionJob.status -notin @('queued', 'running')) {
-            throw "Session start job did not enter queued/running state: $($sessionJob | ConvertTo-Json -Depth 10)"
+    if ($RestartExisting) {
+        try {
+            $null = Invoke-JsonRequest -Method POST -Uri "$hostRunnerUrl/api/session/stop" -Body @{ port = $BrowserPort; timeout_seconds = 20 }
+        } catch {
         }
     }
 
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $status = $null
-    while ((Get-Date) -lt $deadline) {
-        $status = Invoke-JsonRequest -Method GET -Uri "$backendUrl/api/status"
-        $copilotStatus = [string]$status.copilot_session.status
-        $browserStatus = [string]$status.browser_session.status
-        if (($copilotStatus -in @('running', 'user_input_required')) -and $browserStatus -eq 'running') {
-            break
+    $env:COPILOT_ADMIN_REAL_E2E_BACKEND_URL = $backendUrl
+    $env:COPILOT_ADMIN_REAL_E2E_ARTIFACT = $artifactPath
+    $env:COPILOT_ADMIN_EXPECTED_PROJECT = 'SPS'
+    $env:COPILOT_ADMIN_REAL_E2E_SHOW_TEST_SESSION = if ($ShowTestCopilotWindow) { '1' } else { '0' }
+
+    Push-Location $e2eDir
+    try {
+        node $playwrightScript
+        if ($LASTEXITCODE -ne 0) {
+            throw "Playwright real-visible E2E failed with exit code $LASTEXITCODE."
         }
-        Start-Sleep -Seconds 2
+    } finally {
+        Pop-Location
     }
 
-    if ($null -eq $status) {
-        throw 'No backend status was returned.'
-    }
-    if ([string]$status.browser_session.status -ne 'running') {
-        throw "Collaborative browser did not reach running state: $($status.browser_session | ConvertTo-Json -Depth 10)"
-    }
-    if ([string]$status.copilot_session.status -notin @('running', 'user_input_required')) {
-        throw "Copilot session did not reach running/user_input_required state: $($status.copilot_session | ConvertTo-Json -Depth 10)"
-    }
-
-    $consoleBefore = Invoke-JsonRequest -Method GET -Uri "$backendUrl/api/copilot/console?limit=12000"
-    if ([string]$consoleBefore.status -notin @('running', 'user_input_required')) {
-        throw "Copilot console did not expose running/user_input_required state: $($consoleBefore | ConvertTo-Json -Depth 10)"
-    }
-    $queueDoneBefore = 0
-    if ($null -ne $consoleBefore.input_queue -and $null -ne $consoleBefore.input_queue.done) {
-        $queueDoneBefore = [int]$consoleBefore.input_queue.done
-    }
-    $consolePrompt = "Svara kort: copilot-console-real-e2e-$([guid]::NewGuid().ToString('N').Substring(0, 8))"
-    $consoleInput = Invoke-JsonRequest -Method POST -Uri "$backendUrl/api/copilot/input" -Body @{
-        text = $consolePrompt
-        submit = $true
-    }
-    if (-not [bool]$consoleInput.accepted) {
-        throw "Copilot console input was not accepted: $($consoleInput | ConvertTo-Json -Depth 10)"
-    }
-    $inputPath = $null
-    if ($null -ne $consoleInput.response -and $null -ne $consoleInput.response.input -and $null -ne $consoleInput.response.input.input_path) {
-        $inputPath = [string]$consoleInput.response.input.input_path
-    }
-
-    $consoleObserved = $false
-    $consoleAfter = $null
-    $consoleDeadline = (Get-Date).AddSeconds([Math]::Min($TimeoutSeconds, 90))
-    while ((Get-Date) -lt $consoleDeadline) {
-        $consoleAfter = Invoke-JsonRequest -Method GET -Uri "$backendUrl/api/copilot/console?limit=12000"
-        $lastInjected = [string]$consoleAfter.last_injected_text
-        $doneCount = 0
-        if ($null -ne $consoleAfter.input_queue -and $null -ne $consoleAfter.input_queue.done) {
-            $doneCount = [int]$consoleAfter.input_queue.done
-        }
-        $exactInputDone = $false
-        if ($inputPath) {
-            $exactInputDone = (Test-Path -LiteralPath "$inputPath.done")
-        }
-        if ($lastInjected -eq $consolePrompt -or $doneCount -gt $queueDoneBefore -or $exactInputDone -or ([string]$consoleAfter.transcript_tail).Contains($consolePrompt)) {
-            $consoleObserved = $true
-            break
-        }
-        Start-Sleep -Seconds 1
-    }
-    if (-not $consoleObserved) {
-        throw "Copilot console input was accepted but not observed in node-pty state before timeout. Last console state: $($consoleAfter | ConvertTo-Json -Depth 10)"
-    }
-
-    $frontendEvent = Invoke-JsonRequest -Method POST -Uri "$backendUrl/api/frontend/events" -Body @{
-        event = 'real_visible_e2e_observed'
-        level = 'info'
-        status = 'passed'
-    }
+    $artifact = Get-Content -LiteralPath $artifactPath -Raw | ConvertFrom-Json
+    $status = Invoke-JsonRequest -Method GET -Uri "$backendUrl/api/status"
 
     [ordered]@{
-        status = 'passed'
+        status = [string]$artifact.status
         backend_url = $backendUrl
         host_runner_url = $hostRunnerUrl
-        preflight_reused_existing = ($copilotAlreadyRunning -and $browserAlreadyRunning -and -not $RestartExisting)
         isolated_runner_state_dir = $isolatedRunnerStateDir
-        hidden_copilot_session = $true
+        hidden_copilot_helper = -not [bool]$ShowTestCopilotWindow
+        visible_copilot_test_session = [bool]$ShowTestCopilotWindow
+        collaborative_browser_visible = $true
         browser_port = $BrowserPort
-        session_job = $sessionJob
+        artifact_path = $artifactPath
+        timings_ms = $artifact.timings_ms
+        prompt = $artifact.prompt
+        badges = $artifact.badges
         copilot_session = $status.copilot_session
         browser_session = $status.browser_session
-        copilot_console = [ordered]@{
-            before = $consoleBefore
-            input = $consoleInput
-            after = $consoleAfter
-            prompt = $consolePrompt
-        }
-        status_diode = $status.status_diode
-        frontend_event = $frontendEvent
         logs = [ordered]@{
             host_runner_stdout = $hostRunnerOut
             host_runner_stderr = $hostRunnerErr
@@ -235,6 +166,12 @@ try {
         }
     } | ConvertTo-Json -Depth 20
 } finally {
+    try {
+        $null = Invoke-JsonRequest -Method POST -Uri "$hostRunnerUrl/api/session/stop" -Body @{ port = $BrowserPort; timeout_seconds = 20 }
+        $sessionStopped = $true
+    } catch {
+        $sessionStopped = $false
+    }
     if ($backendProcess -and -not $backendProcess.HasExited) {
         Stop-Process -Id $backendProcess.Id -Force
     }
@@ -246,4 +183,9 @@ try {
     } else {
         $env:COPILOT_ADMIN_RUNNER_STATE_DIR = $previousRunnerStateDir
     }
+    Remove-Item Env:\COPILOT_ADMIN_REAL_E2E_BACKEND_URL -ErrorAction SilentlyContinue
+    Remove-Item Env:\COPILOT_ADMIN_REAL_E2E_ARTIFACT -ErrorAction SilentlyContinue
+    Remove-Item Env:\COPILOT_ADMIN_EXPECTED_PROJECT -ErrorAction SilentlyContinue
+    Remove-Item Env:\COPILOT_ADMIN_REAL_E2E_SHOW_TEST_SESSION -ErrorAction SilentlyContinue
+    Remove-Item Env:\COPILOT_ADMIN_SESSION_BROWSER_PORT -ErrorAction SilentlyContinue
 }

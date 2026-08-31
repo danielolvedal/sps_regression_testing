@@ -1,8 +1,8 @@
-# Checkout Cannot Create Contract for Migrated DS Sale
+# Invalidated Checkout Cannot Create Contract for Migrated DS Sale Report
 
 ## Status
 
-failed - verified through three repeated create attempts in Regression Mode.
+invalidated as a confirmed regression report under the current G-test definition. The observation remains historically useful, but it was reproduced on the same DS/checkout and does not satisfy the updated requirement to retry the full B -> G flow across at least ten distinct migrated DS candidates.
 
 ## Affected environment
 
@@ -18,6 +18,8 @@ failed - verified through three repeated create attempts in Regression Mode.
 ## Summary
 
 The checkout page for sale `97570ef4-700a-4f84-a931-019e01442f32` loaded with the expected customer and product data, but it was not possible to create the contract. The page rendered a monthly total as `SEK NaN/månad inkl. moms`, the `NotificationMethodPackageId` dropdown had zero options, no service/setup fee was visibly itemized, and every create attempt returned the validation error `CustomerModel.PhoneNumber har ett felaktigt värde`.
+
+Under the current G-test rules, this evidence is insufficient to prove a system regression in stage because only one migrated DS candidate was used. A valid current report must include a candidate log for at least ten distinct migrated DS candidates, preferably including Akka garages when available, unless the run is explicitly marked as blocked due to insufficient candidates.
 
 ## Reproduction steps
 

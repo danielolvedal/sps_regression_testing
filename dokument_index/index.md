@@ -16,6 +16,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\regressionstest-arbetsmodell.md` - Fastställer hur agenter ska tolka kommandon om regressionstest och hur UI-regressioner körs som instruktionsstyrda testfall.
 - `tools\docs\regression-rapportering.md` - Defines the formal-English reporting standard for `test_reports`, including summaries and verified defect folders.
 - `tools\docs\browser-samarbete-stage-session.md` - Beskriver standardmodellen för synlig browser-session med agent/användar-samarbete.
+- `tools\docs\copilot-admin-browser-lagen.md` - Förtydligar skillnaden mellan synlig localhost-browser för manuellt Copilot-admin-arbete, stage-browsern och den isolerade automationsbrowsern för real-E2E.
 - `tools\docs\copilot-admin-runner-poc.md` - Beskriver den första host-runner-POC:n för status, rapportläsning, Mermaid-graf och tre möjliga bryggspår mellan Windows och Docker-control-plane.
 - `tools\docs\copilot-admin-host-runner-adapter.md` - Definierar Windows host-runner-kontraktet för backend/control-plane med Copilot-/browserstatus, start/stopp och säker inputkö.
 - `tools\docs\copilot-admin-e2e-critical-coverage.md` - Maps Copilot-admin user stories to E2E/static/dry-run validations, documents the mandatory separation between production Copilot sessions and hidden isolated real-E2E sessions, and records remaining real-integration gaps.
@@ -27,15 +28,19 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\decissions\0003-copilot-admin-bridge-evaluation.md` - Fastställer hur HTTP-API, filkö och named pipe ska testas mot samma praktiska case innan första Copilot-admin bridge-val låses.
 - `tools\docs\road-map\README.md` - Beskriver vad framtida verktygs-roadmaps ska innehålla.
 - `tools\docs\road-map\copilot-admin-control-plane.md` - Roadmap för en Docker-hostad control plane med Windows-runner, Copilot CLI och operativt stöd för SPS-regressioner.
+- `tools\docs\road-map\ai-console-latency-layout-startup-plan.md` - Fleet-färdig plan för AI-konsolens startup-policy, latencykrav, layoutparitet, regressioner och integration.
 - `tools\docs\decissions\README.md` - Beskriver vilka typer av verktygsbeslut som ska lagras i beslutskatalogen.
 
 ## Runtime och källkod för verktyg
 
-- `start_tool.ps1` - Enkel rot-entrypoint som startar Regression tool suite: host-runner API, backend/frontend, gemensam Copilot-session och gemensam browser samt skriver ut separat admin-UI-URL.
+- `start_tool.ps1` - Enkel rot-entrypoint som startar Regression tool suite: host-runner API samt backend/frontend, men låter AI-konsolen starta Copilot vid behov om inte `-StartCopilotSession` används.
+- `restart_tool.ps1` - Enkel rot-entrypoint som först kör `stop_tool.ps1`, verifierar att stoppet lyckades utan blockerad status och startar därefter om tool suite via `start_tool.ps1`.
+- `stop_tool.ps1` - Enkel rot-entrypoint som säkert stänger SPS-kontrollerade adminsessioner och servrar: projektets Copilot-sessioner, ägda browserinstanser, backend/webserver och host-runner när de matchar förväntade processer.
 - `install_tool.ps1` - Enkel rot-entrypoint som kor pre-flight, installerar saknade beroenden och bara markerar installationen som klar nar `start_tool.ps1`-kraven ar uppfyllda.
 - `runtime\README.md` - Beskriver runtime-strukturen med stabila root-wrappers samt Windows- och Docker-underkataloger.
 - `runtime\install_tool.ps1` - Stabil root-wrapper som kor Windows-installern for `start_tool.ps1` med pre-flight forst.
 - `runtime\start-collaborative-stage-browser.ps1` - Körklar entrypoint för att starta synlig InPrivate/Incognito-browser för SPS-sessioner.
+- `runtime\start-collaborative-copilot-admin-browser.ps1` - Körklar entrypoint för att starta synlig browser för Copilot-admins localhost-UI på separat debug-port.
 - `runtime\open-shared-browser-tab.ps1` - Körklar entrypoint för att öppna en ny flik i samma delade browserfönster.
 - `runtime\inventory-kundtjanst-menus.ps1` - Körklar entrypoint för att extrahera Kundtjänstportalens menystruktur till rådata.
 - `runtime\generate-kundtjanst-function-doc.ps1` - Körklar entrypoint som genererar CSC-manual från insamlad rådata.
@@ -75,7 +80,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `runtime\docker\copilot-admin\start-backend.ps1` - Startar Copilot-admin control-plane UI/API direkt från repositoryt med Python stdlib HTTP-server.
 - `runtime\docker\copilot-admin\build-backend-image.ps1` - Bygger Docker-image för Copilot-admin control-plane UI/API och visar körkommando med repo-mount.
 - `runtime\docker\copilot-admin\test-e2e-dev.ps1` - Kör utvecklings-E2E för Copilot-admin mot riktig backend, statiskt frontendkontrakt, browser-E2E och injicerad säker host-state.
-- `runtime\docker\copilot-admin\test-real-visible-e2e.ps1` - Kör real visible E2E genom att starta host-runner API, backend, synlig node-pty Copilot-session och collaborative browser.
+- `runtime\docker\copilot-admin\test-real-visible-e2e.ps1` - Kör real visible E2E genom att starta host-runner API, backend, dold isolerad Copilot-helper och separat collaborative browser för automation.
 - `runtime\windows\copilot-admin\host-runner\invoke-copilot-admin-host-runner.ps1` - Windows-wrapper för backendvänliga host-runner-kommandon.
 - `runtime\windows\copilot-admin\host-runner\start-copilot-admin-host-runner-api.ps1` - Startar Windows host-runnerns HTTP API för real-runner bridge från backend.
 - `runtime\windows\copilot-admin\host-runner\test-copilot-admin-host-runner-status-input.ps1` - Verifierar maskinläsbar Copilot-sessionstatus och inputkö i torrkörning.
@@ -87,6 +92,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `runtime\test-kallinventering-coverage.ps1` - Körklar regressionstest som verifierar att `syntetisk_data\common\kallinventering.md` täcker aktuellt innehåll i `raw_data`.
 - `runtime\test-regression-dependencies.ps1` - Körklar regressionstest som verifierar att regressionstesternas metadata, katalog och Mermaid-beroenden är synkade.
 - `tools\source\browser_collaboration\Start-CollaborativeBrowserSession.ps1` - Källkod för browserbootstrap med remote debugging.
+- `tools\source\browser_collaboration\Start-CollaborativeCopilotAdminBrowserSession.ps1` - Källkod för den synliga Copilot-admin-localhost-browsern med separat debug-port och tydlig rollseparation mot stage och automation.
 - `tools\source\browser_collaboration\Open-SharedBrowserTab.ps1` - Källkod för att öppna en ny flik i samma delade browserfönster via befintlig sidtarget.
 - `tools\source\browser_collaboration\Invoke-KundtjanstMenuInventory.ps1` - Källkod för menyinventering via browser-debuggränssnittet.
 - `tools\source\copilot_admin_runner\copilot_admin_runner.py` - Host-runner-POC som läser regressionstillgångar och provar HTTP-, filkö- och named-pipe-bryggor för en framtida Docker-control-plane.
@@ -94,6 +100,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\source\copilot_admin_runner\Invoke-TerminalInputAdapter.ps1` - Källkod för armerad terminal-input-adapter som loggar och testar om ett bridge-genererat kommando kan klistras in i aktiv Copilot CLI-terminal.
 - `tools\source\copilot_admin_runner\Start-OwnedCopilotSessionPoc.ps1` - Källkod för POC kring runner-startad synlig Copilot-session och redirectad stdio-probe.
 - `tools\source\copilot_admin_runner\Install-StartToolDependencies.ps1` - Install-logik som inventerar, rapporterar och atgardar beroenden sa att `start_tool.ps1` kan koras efter godkand pre-flight.
+- `tools\source\copilot_admin_runner\project_session_registry.py` - Gemensamt sessionsregister för SPS-kontrollerade Copilot-sessioner som används för säker identifiering och avstängning i start-/stopflöden.
 - `tools\source\copilot_admin_runner\owned_copilot_pty.py` - Python/ctypes-baserad Windows ConPTY-POC för runner-ägd pseudo-terminal utan externa beroenden.
 - `tools\source\copilot_admin_runner\node_pty_poc\package.json` - Node.js-beroendemanifest för robustare `node-pty`-baserad PTY-POC.
 - `tools\source\copilot_admin_runner\node_pty_poc\package-lock.json` - Låser installerade npm-beroenden för `node-pty`-baserad PTY-POC.
@@ -101,6 +108,9 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\source\copilot_admin_control_plane\backend\app.py` - Python stdlib-backend för Copilot-admin control plane med health/status, regression, rapport-, jobb-, logg- och E2E-control-API:er.
 - `tools\source\copilot_admin_control_plane\backend\test_app.py` - Smoke-/unittest-svit för Copilot-admin backendens API-kontrakt och säkra rapportläsning.
 - `tools\source\copilot_admin_control_plane\backend\Dockerfile` - Containerdefinition för backenddelen av Copilot-admin control plane.
+- `tools\source\copilot_admin_control_plane\e2e\package.json` - Node-manifest för Playwright-baserad real-E2E mot Copilot-admin.
+- `tools\source\copilot_admin_control_plane\e2e\package-lock.json` - Låser npm-beroenden för Playwright-baserad real-E2E mot Copilot-admin.
+- `tools\source\copilot_admin_control_plane\e2e\real_visible_playwright_e2e.mjs` - Playwright-harness för verklig isolerad Copilot-admin-E2E med readiness-badges och latensartefakter.
 - `tools\source\copilot_admin_control_plane\e2e\test_control_plane_dev_e2e.py` - Utvecklings-E2E som verifierar startup/API/UI-kontrakt, statusdiod, jobbcykel, rapporter, Mermaid, asynkronitet och loggkorrelation mot injicerad host-state.
 - `tools\source\copilot_admin_control_plane\e2e\test_frontend_browser_e2e.py` - Browserbaserad E2E via Chrome/Edge CDP för Copilot-admin frontendens dashboard, statusdiod, modekontroller, regressionjobb, rapportläsare, loggar och Mermaid-interaktioner.
 - `tools\source\copilot_admin_control_plane\frontend\index.html` - Frontendskal för Copilot-admin med dashboard, regressioner, Mermaid, rapporter, jobb och loggar.
@@ -121,6 +131,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `syntetisk_data\common\syntetisk-data-standard.md` - Fastställer obligatorisk struktur, sektioner och underhållsregler för alla syntetiska dokument.
 - `syntetisk_data\common\kallinventering.md` - Beskriver värdet, begränsningarna och rekommenderad användning för varje källa i `raw_data`.
 - `syntetisk_data\common\ordlista-och-namnstandard.md` - Normaliserar begrepp, förkortningar och språk-/namnvariationer mellan miljöer.
+- `syntetisk_data\common\ds-routing-index.md` - Sammanfattar den gemensamma DS-routinginventeringen för SPS-stage kontra legacy-stage och pekar till maskinläsbar rådata.
 - `syntetisk_data\lifecycle\kontraktets-livscykel.md` - Beskriver kontraktets hela livscykel från skapande till avslut och efterarbete.
 - `syntetisk_data\feature\kontrakt\skapa-kontrakt.md` - Normaliserar skapaflödet för kontrakt och korttidsavtal.
 - `syntetisk_data\feature\kontrakt\andra-kontrakt.md` - Beskriver hur befintliga kontrakt söks upp och ändras.
@@ -142,6 +153,11 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 
 ### Kundtjänst / CSC
 
+- `manuals\csc_user_manuals\README.md` - Index över CSC-manualpaketet som bygger på syntetisk data och pekar till operativa arbetsmanualer.
+- `manuals\csc_user_manuals\Kundtjänst - kontrakt och avtal.md` - Operativ CSC-manual för att söka, skapa, ändra, prissätta och dokumentera kontrakt.
+- `manuals\csc_user_manuals\Kundtjänst - köer, uppsägning och kundflöden.md` - Operativ CSC-manual för köer, erbjudanden, uppsägning, efterarbete och kundnära kanalflöden.
+- `manuals\csc_user_manuals\Kundtjänst - anläggningar, produkter och access.md` - Operativ CSC-manual för DS, garage, produkter, paket, VRM, nycklar och access.
+- `manuals\csc_user_manuals\Kundtjänst - rapporter, loggar och administration.md` - Operativ CSC-manual för rapporter, audit, drift, register och tvärgående regler.
 - `manuals\csc_user_manuals\Kundtjänst - funktioner.md` - Fullständig meny-för-meny-genomgång av Kundtjänstportalen med syfte, UI-element och stage-status.
 
 ### Serviceportalen / slutanvändare
@@ -161,8 +177,12 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `testing\regression_test\regression-test-dependencies.mmd` - Fristående Mermaid-kod för regressionsflödenas beroendegraf.
 - `testing\regression_test\kontrakt-sok-anna-serviceportal-login.md` - Första manuella/shared-browser-regressionstestet för kontraktssökning på Anna och vidare login till serviceportalen i ny stage-flik.
 - `testing\regression_test\serviceportal-nytt-kontrakt-migrated-ds.md` - Manuellt/shared-browser-regressionstest som efter `A` använder `Admin -> Migrate DS` för att välja ett DS med status `Migrated` och verifiera nytt kontrakt-flödet i serviceportalen.
-- `testing\regression_test\serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - Manuellt/shared-browser-regressionstest som efter `B` verifierar checkoutdata, priser, avgifter, avtalsgodkännande och skapande av kontrakt.
+- `testing\regression_test\serviceportal-nytt-kontrakt-sps-ds.md` - Manuellt/shared-browser-regressionstest som efter `A` använder output från `J` som styrande DS-förutsättning, väljer DS som finns i SPS med `routing: "sps-stage"` och verifierar nytt kontrakt-flödet i serviceportalen.
+- `testing\regression_test\serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - Manuellt/shared-browser-regressionstest som efter `B` eller `K` verifierar checkoutdata, priser, avgifter, avtalsgodkännande och skapande av kontrakt, med krav på omprövning över relevant DS-kandidatlista tills ett DS passerar eller alla kandidater har prövats.
 - `testing\regression_test\serviceportal-nytt-kontrakt-non-migrated-ds.md` - Manuellt/shared-browser-regressionstest som efter `A` använder `Admin -> Migrate DS` för att välja ett DS som inte är migrerat och verifiera köpbar produkt i serviceportalen.
+- `testing\regression_test\kundtjanst-svensk-lokalisering-och-terminologi.md` - Manuellt/shared-browser-regressionstest som granskar alla Kundtjänst-/CSC-menyer och sidor i stage för engelska, blandade eller andra utländska UI-uttryck och svensk terminologikonsekvens.
+- `testing\regression_test\wallboard-messages-layout-och-acknowledge.md` - Manuellt/shared-browser-regressionstest som skapar sex aktiva wallboardmeddelanden i Admin, verifierar `FullScreen`, `HalfScreen` och `OneThirdScreen` i Stage samt att ett meddelande kräver explicit `Acknowledge`.
+- `testing\regression_test\ds-routing-inventory-sps-vs-legacy.md` - Manuellt/shared-browser- och endpointstött dataregressionstest som skapar och håller uppdaterad en gemensam DS-routinglista för SPS kontra legacy.
 - `testing\regression_test\document-index-coverage.md` - Fastställer regressionstestet som kontrollerar att alla beständiga dokument/datafiler finns med i `dokument_index\index.md`.
 - `testing\regression_test\kallinventering-coverage.md` - Fastställer regressionstestet som kontrollerar att `kallinventering.md` hålls synkad med `raw_data`.
 - `testing\regression_test\regression-dependency-coverage.md` - Fastställer regressionstestet som kontrollerar att testmetadata, regressionskatalogen och den fristående Mermaid-koden hålls synkade.
@@ -171,6 +191,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 
 - `raw_data\kundtjanst-funktioner-data.json` - Rå browserextraktion av menyer och sidor från Kundtjänstportalen stage.
 - `raw_data\kundtjanst-funktioner-legacy-data.json` - Rå browserextraktion av menyer och sidor från Kundtjänstportalen stage legacy.
+- `raw_data\ds-routing-inventory.json` - Maskinläsbar DS-routinginventering från Kundtjänst-GUI:ts DS-dropdown och `Skapa kontrakt` steg 1 i stage.
 - `raw_data\sps_vs_legacy_summary.md` - Sammanfattar regressionsjämförelsen mellan nya stage och legacy, inklusive funktionsgap, stabilitet och språk-/namninkonsekvenser.
 - `raw_data\251203 Manual Hyra.apcoa.se.docx` - Extern/manualrelaterad referens för hyra.apcoa.se.
 - `raw_data\ANPR.docx` - Referensdokument om ANPR-relaterad funktionalitet.

@@ -116,6 +116,11 @@ function New-DependencyCheck {
 
 function Get-PreflightState {
     $checks = New-Object System.Collections.Generic.List[object]
+    $pythonPath = $null
+    $pythonReady = $false
+    $nodePath = $null
+    $npmPath = $null
+    $nodeReady = $false
 
     $windowsHost = $env:OS -eq 'Windows_NT'
     if ($windowsHost -and (Test-Path $windowsPowerShellPath)) {
@@ -136,6 +141,7 @@ function Get-PreflightState {
         $pythonProbe = Invoke-ExternalCommand -FilePath $pythonCommand.Source -Arguments @('-c', 'import sys; print(sys.executable)')
         if ($pythonProbe.ExitCode -eq 0) {
             $pythonPath = ($pythonProbe.Output -split "`r?`n" | Select-Object -Last 1).Trim()
+            $pythonReady = $true
             $checks.Add((New-DependencyCheck -Id 'python' -Name 'Python 3' -Category 'system' -Required $true -Status 'ready' -Details $pythonPath))
         } else {
             $checks.Add((New-DependencyCheck -Id 'python' -Name 'Python 3' -Category 'system' -Required $true -Status 'missing' -Details 'python exists but could not execute a simple probe.' -InstallCommands @('winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'Python.Python.3.12'))
@@ -144,12 +150,24 @@ function Get-PreflightState {
         $checks.Add((New-DependencyCheck -Id 'python' -Name 'Python 3' -Category 'system' -Required $true -Status 'missing' -Details 'python was not found in PATH.' -InstallCommands @('winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'Python.Python.3.12'))
     }
 
+    if ($pythonReady) {
+        $pythonSqliteProbe = Invoke-ExternalCommand -FilePath $pythonCommand.Source -Arguments @('-c', 'import sqlite3; print(sqlite3.sqlite_version)')
+        if ($pythonSqliteProbe.ExitCode -eq 0) {
+            $checks.Add((New-DependencyCheck -Id 'python-sqlite' -Name 'Python sqlite3 runtime' -Category 'system' -Required $true -Status 'ready' -Details ("sqlite3=" + (($pythonSqliteProbe.Output -split "`r?`n" | Select-Object -Last 1).Trim()))))
+        } else {
+            $checks.Add((New-DependencyCheck -Id 'python-sqlite' -Name 'Python sqlite3 runtime' -Category 'system' -Required $true -Status 'missing' -Details 'Python is installed but could not import sqlite3.' -InstallCommands @('winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'Python.Python.3.12'))
+        }
+    } else {
+        $checks.Add((New-DependencyCheck -Id 'python-sqlite' -Name 'Python sqlite3 runtime' -Category 'system' -Required $true -Status 'missing' -Details 'Python is unavailable, so sqlite3 support could not be verified.' -InstallCommands @('winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'Python.Python.3.12'))
+    }
+
     try {
         $nodePath = Resolve-NodePtyCommand -Name node
         $npmPath = Resolve-NodePtyCommand -Name npm
         $nodeProbe = Invoke-ExternalCommand -FilePath $nodePath -Arguments @('--version')
         $npmProbe = Invoke-ExternalCommand -FilePath $npmPath -Arguments @('--version')
         if ($nodeProbe.ExitCode -eq 0 -and $npmProbe.ExitCode -eq 0) {
+            $nodeReady = $true
             $details = "node=$($nodeProbe.Output.Trim()); npm=$($npmProbe.Output.Trim())"
             $checks.Add((New-DependencyCheck -Id 'nodejs' -Name 'Node.js LTS + npm' -Category 'system' -Required $true -Status 'ready' -Details $details))
         } else {
@@ -157,6 +175,17 @@ function Get-PreflightState {
         }
     } catch {
         $checks.Add((New-DependencyCheck -Id 'nodejs' -Name 'Node.js LTS + npm' -Category 'system' -Required $true -Status 'missing' -Details $_.Exception.Message -InstallCommands @('winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
+    }
+
+    if ($nodeReady) {
+        $nodeSqliteProbe = Invoke-ExternalCommand -FilePath $nodePath -Arguments @('-e', 'import("node:sqlite").then(() => { console.log("node:sqlite ok"); }).catch((error) => { console.error(error.message); process.exit(1); });')
+        if ($nodeSqliteProbe.ExitCode -eq 0) {
+            $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'ready' -Details 'Built-in node:sqlite module is available.'))
+        } else {
+            $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'missing' -Details 'Installed Node.js could not load the built-in node:sqlite module required by the PTY transport.' -InstallCommands @('winget upgrade --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements', 'If node:sqlite is still unavailable, install a newer Node.js release that includes the built-in node:sqlite module.') -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
+        }
+    } else {
+        $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'missing' -Details 'Node.js is unavailable, so node:sqlite support could not be verified.' -InstallCommands @('winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
     }
 
     try {

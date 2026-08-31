@@ -7,7 +7,9 @@ import json
 import mimetypes
 import os
 import re
+import sys
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,6 +18,9 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import parse_qs, unquote, urlparse
+
+sys.path.insert(0, str((Path(__file__).resolve().parents[2] / "copilot_admin_runner").resolve()))
+from transport_db import enqueue_input, get_session_state, latest_trace_events, queue_snapshot, record_trace_event, transport_db_path, upsert_session_state
 
 
 REPO_ROOT = Path(os.environ.get("SPS_REPO_ROOT", Path(__file__).resolve().parents[4])).resolve()
@@ -27,11 +32,15 @@ FRONTEND_DIR = Path(
 ).resolve()
 TEST_DIR = REPO_ROOT / "testing" / "regression_test"
 REPORTS_DIR = REPO_ROOT / "test_reports"
+MANUALS_DIR = REPO_ROOT / "manuals"
 CATALOG_PATH = TEST_DIR / "regression-test-catalog.md"
 MERMAID_PATH = TEST_DIR / "regression-test-dependencies.mmd"
-NODE_PTY_STATE_DIR = REPO_ROOT / "tmp" / "copilot_admin_runner_state"
+NODE_PTY_STATE_DIR = Path(
+    os.environ.get("COPILOT_ADMIN_RUNNER_STATE_DIR", REPO_ROOT / "tmp" / "copilot_admin_runner_state")
+).resolve()
 NODE_PTY_STATE_PATH = NODE_PTY_STATE_DIR / "node-pty-copilot-session.json"
 NODE_PTY_WINDOW_STATE_PATH = NODE_PTY_STATE_DIR / "node-pty-copilot-window.json"
+NODE_PTY_SESSION_ID = os.environ.get("COPILOT_ADMIN_RUNNER_SESSION_ID", "node-pty-copilot")
 STATE_DIR = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "state"
 LOG_DIR = REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "logs"
 JOBS_PATH = STATE_DIR / "jobs.json"
@@ -40,6 +49,19 @@ MODE_PATH = STATE_DIR / "current-mode.json"
 BACKEND_VERSION = "0.1.0"
 DEFAULT_CONSOLE_TAIL_BYTES = 12000
 MAX_CONSOLE_DELTA_BYTES = 65536
+DEFAULT_HOST_RUNNER_URL = "http://127.0.0.1:8766"
+CONSOLE_EVENT_POLL_SECONDS = 0.03
+FRONTEND_ROUTES = {
+    "dashboard": "dashboard",
+    "manualer": "manualer",
+    "ai-console": "ai-console",
+    "ai-konsolen": "ai-console",
+    "regressioner": "regressioner",
+    "mermaid": "mermaid",
+    "rapporter": "rapporter",
+    "jobb": "jobb",
+    "loggar": "loggar",
+}
 JOB_STATUSES = {
     "queued",
     "running",
@@ -49,13 +71,31 @@ JOB_STATUSES = {
     "failed",
 }
 ACTIVE_STATUSES = {"queued", "running", "user_input_required"}
+AI_CONSOLE_STANDARD_INSTRUCTION = (
+    "Om instruktionen är oklar eller otydlig ställ klargörande frågor, "
+    "om instruktionen påverkar befintliga tester måste användaren informeras om konsekvenserna av den ändringen."
+)
+MANUAL_SECTION_DEFS = (
+    ("csc", "Kundtjänst / CSC", MANUALS_DIR / "csc_user_manuals"),
+    ("serviceportal", "Serviceportalen", MANUALS_DIR / "user_manuals"),
+    ("clients", "Klientmanualer", MANUALS_DIR / "client_manuals"),
+)
+
+
+def current_transport_db_path() -> Path:
+    return transport_db_path(NODE_PTY_STATE_DIR)
 
 
 def host_runner_url() -> str | None:
-    if os.environ.get("COPILOT_ADMIN_ENV", "").lower() == "test" and os.environ.get("COPILOT_ADMIN_ALLOW_TEST_HOST_RUNNER") != "1":
+    env_name = os.environ.get("COPILOT_ADMIN_ENV", "").lower()
+    if env_name in {"test", "testing"} and os.environ.get("COPILOT_ADMIN_ALLOW_TEST_HOST_RUNNER") != "1":
         return None
     value = os.environ.get("COPILOT_ADMIN_HOST_RUNNER_URL", "").strip().rstrip("/")
-    return value or None
+    if value:
+        return value
+    if os.environ.get("COPILOT_ADMIN_DISABLE_DEFAULT_HOST_RUNNER") == "1":
+        return None
+    return os.environ.get("COPILOT_ADMIN_DEFAULT_HOST_RUNNER_URL", DEFAULT_HOST_RUNNER_URL).strip().rstrip("/") or None
 
 
 def is_test_env(value: str | None = None) -> bool:
@@ -69,6 +109,20 @@ def normalize_mode(value: Any) -> str | None:
     if text in {"testing", "testing mode"}:
         return "testing"
     return None
+
+
+def is_ai_console_special_input(text: str) -> bool:
+    raw = str(text or "")
+    stripped = raw.strip()
+    return raw in {"\t", "\x1b"} or stripped == "\x1b" or stripped.startswith("/")
+
+
+def with_ai_console_standard_instruction(text: str) -> str:
+    if is_ai_console_special_input(text):
+        return text
+    if AI_CONSOLE_STANDARD_INSTRUCTION in text:
+        return text
+    return f"{text.rstrip()}\n\nStandardinstruktion: {AI_CONSOLE_STANDARD_INSTRUCTION}"
 
 
 class ApiError(Exception):
@@ -93,6 +147,16 @@ def ensure_child(root: Path, candidate: Path) -> Path:
     if resolved_candidate != resolved_root and resolved_root not in resolved_candidate.parents:
         raise ApiError(400, "Path escapes allowed root.")
     return resolved_candidate
+
+
+def write_json_atomically(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp_path.replace(path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def split_markdown_row(line: str) -> list[str]:
@@ -123,6 +187,14 @@ def report_id_for(path: Path) -> str:
     return token
 
 
+def title_from_markdown(content: str, fallback: str) -> str:
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip() or fallback
+    return fallback
+
+
 def path_for_report_id(report_id: str) -> Path:
     try:
         padded = report_id + "=" * (-len(report_id) % 4)
@@ -137,13 +209,34 @@ def path_for_report_id(report_id: str) -> Path:
     return path
 
 
+def path_for_manual_id(manual_id: str) -> Path:
+    try:
+        padded = manual_id + "=" * (-len(manual_id) % 4)
+        rel = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except Exception as exc:
+        raise ApiError(400, "Invalid manual_id.") from exc
+    if Path(rel).is_absolute() or ".." in Path(rel).parts:
+        raise ApiError(400, "Invalid manual path.")
+    path = ensure_child(MANUALS_DIR, REPO_ROOT / rel)
+    if not path.is_file() or path.suffix.lower() != ".md":
+        raise ApiError(404, "Manual not found.")
+    return path
+
+
 def read_json_file(path: Path, default: Any) -> Any:
     if not path.is_file():
         return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ApiError(500, f"Invalid JSON state file: {rel_path(path)}") from exc
+    attempts = 3
+    last_error: json.JSONDecodeError | None = None
+    for attempt in range(attempts):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            if attempt == attempts - 1:
+                raise ApiError(500, f"Invalid JSON state file: {rel_path(path)}") from exc
+            time.sleep(0.02)
+    raise ApiError(500, f"Invalid JSON state file: {rel_path(path)}") from last_error
 
 
 def read_optional_json_file(path: Path, default: Any) -> Any:
@@ -153,6 +246,22 @@ def read_optional_json_file(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError:
         return default
+
+
+def frontend_route_version() -> str:
+    paths = [FRONTEND_DIR / "index.html", FRONTEND_DIR / "app.js", FRONTEND_DIR / "styles.css"]
+    latest_ns = max((path.stat().st_mtime_ns for path in paths if path.is_file()), default=0)
+    return f"v{latest_ns:x}"
+
+
+def normalize_frontend_route(path: str) -> tuple[str, str | None] | None:
+    parts = [unquote(part).strip() for part in path.strip("/").split("/") if part.strip()]
+    if not parts:
+        return ("dashboard", None)
+    route = FRONTEND_ROUTES.get(parts[0].casefold())
+    if route is None or len(parts) > 2:
+        return None
+    return (route, parts[1] if len(parts) == 2 else None)
 
 
 def is_process_running(pid: Any) -> bool:
@@ -230,10 +339,7 @@ class ControlPlaneBackend:
         return data
 
     def _write_jobs(self, jobs: list[dict[str, Any]]) -> None:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
-        tmp_path = JOBS_PATH.with_suffix(".json.tmp")
-        tmp_path.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp_path.replace(JOBS_PATH)
+        write_json_atomically(JOBS_PATH, jobs)
 
     def parse_catalog(self) -> dict[str, Any]:
         entries: list[dict[str, Any]] = []
@@ -245,18 +351,43 @@ class ControlPlaneBackend:
             if len(cells) != 5:
                 continue
             dependency_text = cells[1].strip("`")
-            dependencies = [] if dependency_text == "-" else [part.strip() for part in dependency_text.split("->")]
+            catalog_key = cells[0].strip("`")
+            file_path = cells[4].strip("`")
+            dependency_keys = []
+            if dependency_text != "-":
+                dependency_keys = [part.strip() for part in dependency_text.split("->") if part.strip() and part.strip() != catalog_key]
             entries.append(
                 {
-                    "catalog_key": cells[0].strip("`"),
+                    "catalog_key": catalog_key,
                     "dependency": dependency_text,
-                    "dependencies": dependencies,
+                    "dependencies": dependency_keys,
+                    "dependency_keys": dependency_keys,
                     "test_id": cells[2].strip("`"),
                     "summary": cells[3],
-                    "file": cells[4].strip("`"),
+                    "file": file_path,
+                    "file_path": file_path,
+                    "test_type": self.test_type_for(REPO_ROOT / file_path),
                 }
             )
+        test_id_by_key = {entry["catalog_key"]: entry["test_id"] for entry in entries}
+        for entry in entries:
+            entry["dependency_test_ids"] = [
+                test_id_by_key[key] for key in entry["dependency_keys"] if key in test_id_by_key
+            ]
+            entry["dependency_mode"] = "required" if entry["dependency_keys"] else "none"
         return {"path": rel_path(CATALOG_PATH), "count": len(entries), "tests": entries}
+
+    def test_type_for(self, path: Path) -> str:
+        if not path.is_file():
+            return "unknown"
+        text = path.read_text(encoding="utf-8")
+        match = re.search(r"^## Typ\s*$\n+(.*?)(?=^\#\# |\Z)", text, flags=re.MULTILINE | re.DOTALL)
+        typ = " ".join(match.group(1).split()).lower() if match else ""
+        if "ui" in typ or "shared-browser" in typ or "browser" in typ:
+            return "ui-regression"
+        if "struktur" in typ or "structure" in typ or "runtime" in typ:
+            return "structure-regression"
+        return "regression"
 
     def mermaid(self) -> dict[str, Any]:
         text = MERMAID_PATH.read_text(encoding="utf-8")
@@ -297,6 +428,69 @@ class ControlPlaneBackend:
             "bytes": len(content.encode("utf-8")),
         }
 
+    def list_manuals(self) -> dict[str, Any]:
+        section_items: list[dict[str, Any]] = []
+        section_lookup: dict[str, dict[str, Any]] = {}
+        manuals: list[dict[str, Any]] = []
+        for key, label, directory in MANUAL_SECTION_DEFS:
+            entry = {
+                "section_key": key,
+                "section_label": label,
+                "directory": rel_path(directory),
+                "available": directory.is_dir(),
+                "count": 0,
+            }
+            section_items.append(entry)
+            section_lookup[key] = entry
+            if not directory.is_dir():
+                continue
+            for path in directory.rglob("*.md"):
+                if any(part == "node_modules" for part in path.parts):
+                    continue
+                safe = ensure_child(directory, path)
+                stat = safe.stat()
+                content = safe.read_text(encoding="utf-8")
+                section_lookup[key]["count"] += 1
+                manuals.append(
+                    {
+                        "manual_id": report_id_for(safe),
+                        "path": rel_path(safe),
+                        "name": safe.name,
+                        "title": title_from_markdown(content, safe.stem),
+                        "section_key": key,
+                        "section_label": label,
+                        "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat().replace("+00:00", "Z"),
+                        "bytes": stat.st_size,
+                    }
+                )
+        order = {key: index for index, (key, _, _) in enumerate(MANUAL_SECTION_DEFS)}
+        manuals.sort(key=lambda item: (order.get(item["section_key"], 999), item["path"].casefold()))
+        return {
+            "count": len(manuals),
+            "sections": section_items,
+            "manuals": manuals,
+        }
+
+    def get_manual(self, manual_id: str) -> dict[str, Any]:
+        path = path_for_manual_id(manual_id)
+        content = path.read_text(encoding="utf-8")
+        section_key = next(
+            (key for key, _label, directory in MANUAL_SECTION_DEFS if directory in path.resolve().parents),
+            "unknown",
+        )
+        section_label = next((label for key, label, _directory in MANUAL_SECTION_DEFS if key == section_key), section_key)
+        return {
+            "manual_id": report_id_for(path),
+            "path": rel_path(path),
+            "name": path.name,
+            "title": title_from_markdown(content, path.stem),
+            "section_key": section_key,
+            "section_label": section_label,
+            "content_type": "text/markdown; charset=utf-8",
+            "markdown": content,
+            "bytes": len(content.encode("utf-8")),
+        }
+
     def injected_host_state(self) -> dict[str, Any]:
         state = read_json_file(HOST_STATE_PATH, {}) if HOST_STATE_PATH.exists() else {}
         return state if isinstance(state, dict) else {}
@@ -305,6 +499,7 @@ class ControlPlaneBackend:
         base_url = host_runner_url()
         if not base_url:
             raise ApiError(503, "Host runner URL is not configured.")
+        timeout_seconds = self.host_runner_timeout_seconds(path)
         data = None if payload is None else json.dumps(payload).encode("utf-8")
         request = Request(
             f"{base_url}{path}",
@@ -313,7 +508,7 @@ class ControlPlaneBackend:
             headers={"Content-Type": "application/json"},
         )
         try:
-            with urlopen(request, timeout=float(os.environ.get("COPILOT_ADMIN_HOST_RUNNER_TIMEOUT_SECONDS", "5"))) as response:
+            with urlopen(request, timeout=timeout_seconds) as response:
                 body = response.read().decode("utf-8")
         except HTTPError as exc:
             raise ApiError(exc.code, "Host runner request failed.", {"path": path, "body": exc.read().decode("utf-8", errors="replace")}) from exc
@@ -328,6 +523,16 @@ class ControlPlaneBackend:
         if not isinstance(decoded, dict):
             raise ApiError(502, "Host runner response must be a JSON object.", {"path": path})
         return decoded
+
+    def host_runner_timeout_seconds(self, path: str) -> float:
+        configured = os.environ.get("COPILOT_ADMIN_HOST_RUNNER_TIMEOUT_SECONDS")
+        if configured:
+            return float(configured)
+        if path == "/api/session/start":
+            return 75.0
+        if path == "/status":
+            return 20.0
+        return 10.0
 
     def host_runner_status_snapshot(self) -> dict[str, Any] | None:
         if not host_runner_url():
@@ -345,33 +550,31 @@ class ControlPlaneBackend:
         if isinstance(injected.get("copilot_state"), dict):
             state = dict(injected["copilot_state"])
             state["source"] = "injected"
-        elif snapshot is not None or (snapshot := self.host_runner_status_snapshot()) is not None:
-            state = dict(snapshot.get("copilot_session") or {})
-            state.setdefault("status", "unknown")
-            state["source"] = snapshot.get("source")
-        elif not is_test_env(self.env) and NODE_PTY_STATE_PATH.is_file():
-            state = read_json_file(NODE_PTY_STATE_PATH, {})
+        elif not is_test_env(self.env) and (db_state := get_session_state(current_transport_db_path(), session_id=NODE_PTY_SESSION_ID)) is not None:
+            state = dict(db_state)
             if isinstance(state, dict):
-                state = dict(state)
-                window_state = read_optional_json_file(NODE_PTY_WINDOW_STATE_PATH, {})
-                if isinstance(window_state, dict):
-                    state.setdefault("visible_window_expected", bool(window_state.get("visible_window_expected", not bool(window_state.get("hidden")))))
-                    state.setdefault("startup_model", window_state.get("startup_model"))
-                    state.setdefault("startup_allow_all", bool(window_state.get("startup_allow_all")))
-                    state.setdefault("window_state_path", str(NODE_PTY_WINDOW_STATE_PATH))
                 wrapper_running = is_process_running(state.get("wrapper_pid"))
+                launcher_running = is_process_running(state.get("launcher_pid"))
                 state["running"] = wrapper_running
                 if state.get("status") in {"running", "user_input_required"} and not wrapper_running:
                     state["status"] = "not_running"
                     state["user_input_required"] = False
                     state["user_input_reason"] = None
-                if not wrapper_running:
+                if not wrapper_running and not launcher_running:
                     state["visible_window_expected"] = False
-                state["source"] = rel_path(NODE_PTY_STATE_PATH)
+                state.setdefault("state_storage", "sqlite")
+                state.setdefault("state_db_path", str(current_transport_db_path()))
+                state.setdefault("state_path", str(current_transport_db_path()))
+                state.setdefault("window_state_path", str(current_transport_db_path()))
+                state["source"] = str(current_transport_db_path())
             else:
-                state = {"status": "invalid", "source": rel_path(NODE_PTY_STATE_PATH)}
+                state = {"status": "invalid", "source": str(current_transport_db_path())}
+        elif snapshot is not None or (snapshot := self.host_runner_status_snapshot()) is not None:
+            state = dict(snapshot.get("copilot_session") or {})
+            state.setdefault("status", "unknown")
+            state["source"] = snapshot.get("source")
         else:
-            source = "test-isolated" if is_test_env(self.env) else rel_path(NODE_PTY_STATE_PATH)
+            source = "test-isolated" if is_test_env(self.env) else str(current_transport_db_path())
             state = {"status": "missing", "source": source, "user_input_required": False}
         transcript_path_value = state.get("transcript_path")
         if transcript_path_value and not state.get("last_output_tail"):
@@ -381,29 +584,49 @@ class ControlPlaneBackend:
                     state["last_output_tail"] = transcript_path.read_text(encoding="utf-8", errors="replace")[-4000:]
             except Exception:
                 state.setdefault("last_output_tail", "")
+        state.setdefault("input_queue_db_path", str(current_transport_db_path()))
+        state.setdefault("trace_db_path", str(current_transport_db_path()))
         return state
 
-    def copilot_console(self, snapshot: dict[str, Any] | None = None, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    def ai_console(self, snapshot: dict[str, Any] | None = None, query: dict[str, list[str]] | None = None) -> dict[str, Any]:
         session = self.copilot_session(snapshot)
         transcript = str(session.get("last_output_tail") or "")
         status = str(session.get("status", "unknown"))
+        repo_root = str(session.get("repo_root") or self.repo_root)
+        project_name = Path(repo_root).name if repo_root else None
         current_model = session.get("current_model") or session.get("model_hint")
         configured_model = session.get("startup_model")
         model_verified = bool(session.get("model_verified") or session.get("current_model"))
+        directory_trust_requested = bool(session.get("directory_trust_requested"))
+        directory_trust_verified = bool(session.get("directory_trust_verified"))
+        permissions_allow_all_requested = bool(
+            session.get("startup_allow_all_requested")
+            or session.get("startup_allow_all")
+            or session.get("allow_all_verified")
+        )
         permissions_allow_all_verified = bool(
             session.get("permissions_allow_all")
             or session.get("allow_all_verified")
-            or (session.get("startup_allow_all") and session.get("startup_commands_sent"))
         )
-        permissions_hint = session.get("permissions_hint") or ("allow-all" if permissions_allow_all_verified else None)
+        permissions_verified = permissions_allow_all_verified and (directory_trust_verified or not directory_trust_requested)
+        permissions_hint = session.get("permissions_hint") or ("allow-all" if permissions_verified or permissions_allow_all_requested else None)
+        command_ready = status == "running" and not bool(session.get("user_input_required")) and permissions_verified
         query = query or {}
+        include_trace = str((query.get("include_trace") or ["1"])[0]).strip().lower() not in {"0", "false", "no"}
         requested_cursor = self._int_query_value(query, "cursor")
         requested_limit = self._int_query_value(query, "limit") or DEFAULT_CONSOLE_TAIL_BYTES
         limit = max(1024, min(requested_limit, MAX_CONSOLE_DELTA_BYTES))
         transcript_payload = self.read_console_transcript(session, requested_cursor, limit)
         input_queue = session.get("input_queue") or {}
+        db_path_value = session.get("input_queue_db_path") or input_queue.get("db_path")
         queue_dir_value = session.get("input_queue_dir") or input_queue.get("queue_dir")
-        if queue_dir_value:
+        if db_path_value:
+            try:
+                db_path = ensure_child(self.repo_root, Path(db_path_value))
+                input_queue = {**input_queue, **queue_snapshot(db_path)}
+            except Exception:
+                input_queue = dict(input_queue)
+        elif queue_dir_value:
             try:
                 queue_dir = ensure_child(self.repo_root, Path(queue_dir_value))
                 if queue_dir.is_dir():
@@ -436,15 +659,36 @@ class ControlPlaneBackend:
             "user_input_reason": session.get("user_input_reason"),
             "transcript_tail": transcript_payload["text"] or transcript[-limit:],
             "transcript": transcript_payload,
+            "transcript_path": session.get("transcript_path"),
             "last_injected_text": session.get("last_injected_text", ""),
             "last_injected_at": session.get("last_injected_at"),
+            "last_input_client_sent_at": session.get("last_input_client_sent_at"),
+            "last_input_backend_queued_at": session.get("last_input_backend_queued_at"),
+            "last_input_host_runner_received_at": session.get("last_input_host_runner_received_at"),
+            "last_input_host_runner_queued_at": session.get("last_input_host_runner_queued_at"),
+            "last_input_queue_file_seen_at": session.get("last_input_queue_file_seen_at"),
+            "last_input_pty_write_at": session.get("last_input_pty_write_at"),
+            "last_input_trace_id": session.get("last_input_trace_id"),
+            "last_input_job_id": session.get("last_input_job_id"),
+            "last_output_chunk_at": session.get("last_output_chunk_at"),
+            "last_output_chunk_bytes": session.get("last_output_chunk_bytes"),
+            "last_output_sequence": session.get("last_output_sequence"),
+            "last_output_transcript_size": session.get("last_output_transcript_size"),
             "input_queue": input_queue,
+            "input_queue_db_path": session.get("input_queue_db_path") or input_queue.get("db_path"),
+            "trace_db_path": session.get("trace_db_path") or str(current_transport_db_path()),
+            "recent_trace_events": latest_trace_events(current_transport_db_path(), limit=10, trace_id=session.get("last_input_trace_id")) if include_trace else [],
             "source": session.get("source"),
+            "repo_root": repo_root,
+            "project_name": project_name,
+            "project_verified": bool(project_name),
             "model_hint": current_model,
             "configured_model": configured_model,
             "model_verified": model_verified,
             "permissions_hint": permissions_hint,
-            "permissions_verified": permissions_allow_all_verified,
+            "permissions_verified": permissions_verified,
+            "directory_trust_verified": directory_trust_verified,
+            "command_ready": command_ready,
         }
 
     def _int_query_value(self, query: dict[str, list[str]], key: str) -> int | None:
@@ -462,6 +706,7 @@ class ControlPlaneBackend:
     def read_console_transcript(self, session: dict[str, Any], cursor: int | None, limit: int) -> dict[str, Any]:
         transcript_path_value = session.get("transcript_path")
         fallback = str(session.get("last_output_tail") or "")
+        transcript_kind = str(session.get("transcript_kind") or "")
         if not transcript_path_value:
             encoded = fallback.encode("utf-8", errors="replace")
             return {
@@ -488,6 +733,28 @@ class ControlPlaneBackend:
             }
         if not transcript_path.is_file():
             return {"mode": "missing", "text": "", "cursor": cursor, "next_cursor": cursor or 0, "size": 0, "truncated": False, "source": str(transcript_path)}
+        if transcript_kind == "screen_snapshot":
+            text = transcript_path.read_text(encoding="utf-8", errors="replace")
+            encoded = text.encode("utf-8", errors="replace")
+            revision = int(session.get("last_output_sequence") or 0)
+            if cursor is None:
+                mode = "tail"
+                payload_text = text[-limit:]
+            elif cursor != revision:
+                mode = "reset_tail"
+                payload_text = text[-limit:]
+            else:
+                mode = "delta"
+                payload_text = ""
+            return {
+                "mode": mode,
+                "text": payload_text,
+                "cursor": cursor,
+                "next_cursor": revision,
+                "size": len(encoded),
+                "truncated": len(encoded) > limit,
+                "source": str(transcript_path),
+            }
         size = transcript_path.stat().st_size
         if cursor is None:
             start = max(0, size - limit)
@@ -505,6 +772,22 @@ class ControlPlaneBackend:
         with transcript_path.open("rb") as handle:
             handle.seek(read_start)
             text = handle.read(limit).decode("utf-8", errors="replace")
+        needs_reset_tail = (
+            mode == "delta"
+            and (
+                "\b" in text
+                or "\x15" in text
+                or "\x1b" in text
+                or re.search(r"\r(?!\n)", text) is not None
+            )
+        )
+        if needs_reset_tail:
+            read_start = max(0, size - limit)
+            with transcript_path.open("rb") as handle:
+                handle.seek(read_start)
+                text = handle.read(limit).decode("utf-8", errors="replace")
+            mode = "reset_tail"
+            truncated = read_start > 0
         return {
             "mode": mode,
             "text": text,
@@ -587,6 +870,7 @@ class ControlPlaneBackend:
                 "state_dir": rel_path(STATE_DIR),
                 "log_dir": rel_path(LOG_DIR),
                 "frontend_dir": str(FRONTEND_DIR),
+                "frontend_route_version": frontend_route_version(),
             },
         }
 
@@ -619,53 +903,115 @@ class ControlPlaneBackend:
         if host_runner_url():
             if job["type"] == "session_start":
                 payload = dict(job["payload"])
-                payload.setdefault("restart_existing", False)
-                payload.setdefault("startup_model", "gpt-5-mini")
+                payload.setdefault("restart_existing", True)
+                payload.setdefault("startup_model", "auto")
+                payload.setdefault("port", int(os.environ.get("COPILOT_ADMIN_SESSION_BROWSER_PORT", "9222")))
                 response = self.call_host_runner("POST", "/api/session/start", payload)
-                return {"dispatched": True, "target": "host-runner", "response": response}
+                dispatched = str(response.get("status") or "").lower() not in {"failed", "error", "blocked"}
+                reason = None
+                if not dispatched:
+                    reason = (
+                        response.get("error")
+                        or response.get("copilot", {}).get("stderr")
+                        or response.get("copilot", {}).get("status")
+                        or response.get("status")
+                    )
+                return {"dispatched": dispatched, "target": "host-runner", "response": response, "reason": reason}
             response = self.call_host_runner("POST", "/copilot/input", {"text": job["prompt"], "job_id": job["job_id"], "trace_id": job["trace_id"]})
             return {"dispatched": response.get("status") not in {"failed", "error"}, "target": "host-runner", "response": response}
 
         copilot = self.copilot_session()
+        db_path_value = copilot.get("input_queue_db_path") or str(current_transport_db_path())
         queue_dir_value = copilot.get("input_queue_dir")
-        if not queue_dir_value or copilot.get("status") not in {"running", "user_input_required"}:
+        if (not db_path_value and not queue_dir_value) or copilot.get("status") not in {"running", "user_input_required"}:
             return {"dispatched": False, "reason": "node-pty input queue is not available"}
-        queue_dir = ensure_child(self.repo_root, Path(queue_dir_value))
-        queue_dir.mkdir(parents=True, exist_ok=True)
-        request_path = queue_dir / f"{utc_now().replace(':', '').replace('-', '').replace('.', '')}-{job['job_id']}.json"
         request = {
             "text": job["prompt"],
             "submit": job["payload"].get("submit") is not False,
             "clear_line": bool(job["payload"].get("clear_line")),
             "job_id": job["job_id"],
             "trace_id": job["trace_id"],
+            "client_sent_at": job["payload"].get("client_sent_at"),
+            "backend_queued_at": job["payload"].get("backend_accepted_at") or utc_now(),
         }
-        request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
+        if db_path_value:
+            db_path = ensure_child(self.repo_root, Path(db_path_value))
+            queued = enqueue_input(
+                db_path,
+                source="backend-local",
+                text=request["text"],
+                display_text=request["text"],
+                clear_line=bool(request["clear_line"]),
+                submit=bool(request["submit"]),
+                job_id=job["job_id"],
+                trace_id=job["trace_id"],
+                client_sent_at=request["client_sent_at"],
+                backend_accepted_at=job["payload"].get("backend_accepted_at"),
+                backend_queued_at=request["backend_queued_at"],
+            )
+            return {"dispatched": True, "queue_db": str(db_path), "input_id": queued["input_id"]}
+        queue_dir = ensure_child(self.repo_root, Path(queue_dir_value))
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        request_path = queue_dir / f"{utc_now().replace(':', '').replace('-', '').replace('.', '')}-{job['job_id']}.json"
+        write_json_atomically(request_path, request)
         return {"dispatched": True, "queue_file": rel_path(request_path)}
 
-    def send_copilot_console_input(self, payload: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
-        text = str(payload.get("text") if payload.get("text") is not None else payload.get("prompt") or "")
-        if not text.strip() and text not in {"\t", "\x1b"}:
+    def send_ai_console_input(self, payload: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
+        raw_text = str(payload.get("text") if payload.get("text") is not None else payload.get("prompt") or "")
+        if not raw_text.strip() and raw_text not in {"\t", "\x1b"}:
             raise ApiError(400, "text is required.")
+        text = with_ai_console_standard_instruction(raw_text)
         submit = payload.get("submit") is not False
         job_id = payload.get("job_id") or f"console-{uuid.uuid4().hex}"
         request = {
             "job_id": job_id,
             "trace_id": trace_id or payload.get("trace_id") or uuid.uuid4().hex,
-            "type": "copilot_console_input",
+            "type": "ai_console_input",
             "prompt": text,
-            "payload": {"text": text, "submit": submit, "clear_line": payload.get("clear_line") is not False},
+            "payload": {
+                "text": text,
+                "submit": submit,
+                "clear_line": payload.get("clear_line") is not False,
+                "client_sent_at": payload.get("client_sent_at"),
+                "backend_accepted_at": utc_now(),
+            },
         }
+        record_trace_event(
+            current_transport_db_path(),
+            component="backend",
+            event="ai_console_input_accepted",
+            trace_id=request["trace_id"],
+            job_id=job_id,
+            status="accepted",
+            details={"submit": submit, "clear_line": request["payload"]["clear_line"]},
+        )
         if host_runner_url():
-            response = self.call_host_runner("POST", "/copilot/input", {"text": text, "submit": submit, "clear_line": request["payload"]["clear_line"], "job_id": job_id, "trace_id": request["trace_id"]})
+            response = self.call_host_runner("POST", "/copilot/input", {
+                "text": text,
+                "submit": submit,
+                "clear_line": request["payload"]["clear_line"],
+                "job_id": job_id,
+                "trace_id": request["trace_id"],
+                "client_sent_at": request["payload"]["client_sent_at"],
+                "backend_accepted_at": request["payload"]["backend_accepted_at"],
+            })
             result = {"accepted": response.get("status") not in {"failed", "error"}, "target": "host-runner", "response": response, "job_id": job_id}
         else:
             dispatch = self.dispatch_to_node_pty(request)
             result = {"accepted": bool(dispatch.get("dispatched")), "target": "local-node-pty", "response": dispatch, "job_id": job_id}
         if not result["accepted"]:
-            raise ApiError(409, "Copilot console input could not be queued.", {"dispatch": result})
-        self.log("info", "backend", "copilot_console_input_sent", trace_id=request["trace_id"], job_id=job_id, status="queued", details={"submit": submit, "target": result["target"]})
-        result["console"] = self.copilot_console()
+            raise ApiError(409, "AI console input could not be queued.", {"dispatch": result})
+        self.log("info", "backend", "ai_console_input_sent", trace_id=request["trace_id"], job_id=job_id, status="queued", details={"submit": submit, "target": result["target"]})
+        record_trace_event(
+            current_transport_db_path(),
+            component="backend",
+            event="ai_console_input_dispatched",
+            trace_id=request["trace_id"],
+            job_id=job_id,
+            status="queued",
+            details={"target": result["target"], "response": result["response"]},
+        )
+        result["accepted_at"] = request["payload"]["backend_accepted_at"]
         return result
 
     def create_job(self, job_type: str, payload: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
@@ -756,6 +1102,16 @@ class ControlPlaneBackend:
             details={"frontend": payload},
         )
         self.log("info", "backend", "frontend_event_received", trace_id=record["trace_id"], job_id=payload.get("job_id"), status=payload.get("status"))
+        if record["trace_id"]:
+            record_trace_event(
+                current_transport_db_path(),
+                component="frontend",
+                event=event,
+                trace_id=record["trace_id"],
+                job_id=payload.get("job_id"),
+                status=payload.get("status"),
+                details=payload,
+            )
         return {"accepted": True, "trace_id": record["trace_id"]}
 
     def assert_test_api_allowed(self) -> None:
@@ -799,6 +1155,14 @@ class ControlPlaneBackend:
 APP = ControlPlaneBackend()
 
 
+class QuietThreadingHTTPServer(ThreadingHTTPServer):
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)) or getattr(exc, "winerror", None) in {64, 10053, 10054}:
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "CopilotAdminControlPlane/0.1"
 
@@ -827,6 +1191,88 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def send_sse_event(self, event: str, payload: Any) -> None:
+        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        self.wfile.write(f"event: {event}\n".encode("utf-8"))
+        for line in encoded.splitlines() or [""]:
+            self.wfile.write(f"data: {line}\n".encode("utf-8"))
+        self.wfile.write(b"\n")
+        self.wfile.flush()
+
+    @staticmethod
+    def is_client_disconnect(exc: Exception) -> bool:
+        if isinstance(exc, (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)):
+            return True
+        return getattr(exc, "winerror", None) in {64, 10053, 10054}
+
+    def stream_ai_console_events(self, query: dict[str, list[str]]) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        cursor = self.app._int_query_value(query, "cursor")
+        requested_limit = self.app._int_query_value(query, "limit") or DEFAULT_CONSOLE_TAIL_BYTES
+        limit = max(1024, min(requested_limit, MAX_CONSOLE_DELTA_BYTES))
+        deadline = time.time() + float(os.environ.get("COPILOT_ADMIN_CONSOLE_EVENT_STREAM_SECONDS", "300"))
+        last_heartbeat = 0.0
+        base_query = {"cursor": [str(cursor)], "limit": [str(limit)], "include_trace": ["0"]} if cursor is not None else {"limit": [str(limit)], "include_trace": ["0"]}
+        base_console = self.app.ai_console(query=base_query)
+        base_console["streamed_at"] = utc_now()
+        last_console_signature = (
+            base_console.get("status"),
+            base_console.get("running"),
+            base_console.get("updated_at"),
+            base_console.get("user_input_required"),
+            base_console.get("user_input_reason"),
+            base_console.get("visible_window_expected"),
+            base_console.get("permissions_verified"),
+            base_console.get("command_ready"),
+            base_console.get("project_name"),
+        )
+        try:
+            self.send_sse_event("console", base_console)
+        except Exception as exc:
+            if self.is_client_disconnect(exc):
+                return
+            raise
+        transcript = base_console.get("transcript") or {}
+        if isinstance(transcript.get("next_cursor"), int):
+            cursor = transcript["next_cursor"]
+        while time.time() < deadline:
+            current_query = {"cursor": [str(cursor)], "limit": [str(limit)], "include_trace": ["0"]} if cursor is not None else {"limit": [str(limit)], "include_trace": ["0"]}
+            console = self.app.ai_console(query=current_query)
+            transcript = console.get("transcript") or {}
+            text = str(transcript.get("text") or "")
+            next_cursor = transcript.get("next_cursor")
+            console_signature = (
+                console.get("status"),
+                console.get("running"),
+                console.get("updated_at"),
+                console.get("user_input_required"),
+                console.get("user_input_reason"),
+                console.get("visible_window_expected"),
+                console.get("permissions_verified"),
+                console.get("command_ready"),
+                console.get("project_name"),
+            )
+            try:
+                if text or console_signature != last_console_signature:
+                    console["streamed_at"] = utc_now()
+                    self.send_sse_event("console", console)
+                    last_console_signature = console_signature
+                elif time.time() - last_heartbeat >= 2.0:
+                    self.send_sse_event("heartbeat", {"server_timestamp": utc_now(), "streamed_at": utc_now(), "cursor": cursor})
+                    last_heartbeat = time.time()
+            except Exception as exc:
+                if self.is_client_disconnect(exc):
+                    return
+                raise
+            if isinstance(next_cursor, int):
+                cursor = next_cursor
+            time.sleep(CONSOLE_EVENT_POLL_SECONDS)
+
     def handle_error(self, exc: Exception) -> None:
         if isinstance(exc, ApiError):
             self.send_json(exc.status_code, {"error": exc.message, "details": exc.details})
@@ -838,8 +1284,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             path = parsed.path.rstrip("/") or "/"
-            if path == "/":
-                self.send_static("index.html")
+            frontend_route = normalize_frontend_route(path)
+            if frontend_route is not None:
+                self.send_frontend_route(*frontend_route)
             elif path in {"/app.js", "/styles.css"}:
                 self.send_static(path.lstrip("/"))
             elif path == "/api/health":
@@ -848,8 +1295,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, self.app.status())
             elif path == "/api/session/copilot":
                 self.send_json(200, self.app.copilot_session())
-            elif path == "/api/copilot/console":
-                self.send_json(200, self.app.copilot_console(query=parse_qs(parsed.query)))
+            elif path in {"/api/ai-console", "/api/copilot/console"}:
+                self.send_json(200, self.app.ai_console(query=parse_qs(parsed.query)))
+            elif path in {"/api/ai-console/events", "/api/copilot/console/events"}:
+                self.stream_ai_console_events(parse_qs(parsed.query))
             elif path == "/api/session/browser":
                 self.send_json(200, self.app.browser_session())
             elif path == "/api/regression/tests":
@@ -860,6 +1309,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(200, self.app.list_reports())
             elif path.startswith("/api/reports/"):
                 self.send_json(200, self.app.get_report(unquote(path.removeprefix("/api/reports/"))))
+            elif path == "/api/manuals":
+                self.send_json(200, self.app.list_manuals())
+            elif path.startswith("/api/manuals/"):
+                self.send_json(200, self.app.get_manual(unquote(path.removeprefix("/api/manuals/"))))
             elif path == "/api/jobs":
                 self.send_json(200, self.app.list_jobs(parse_qs(parsed.query)))
             elif path.startswith("/api/jobs/"):
@@ -867,7 +1320,46 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise ApiError(404, "Endpoint not found.")
         except Exception as exc:
+            if self.is_client_disconnect(exc):
+                return
             self.handle_error(exc)
+
+    def send_redirect(self, location: str) -> None:
+        encoded = b""
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+
+    def send_frontend_route(self, route: str, version: str | None) -> None:
+        latest_version = frontend_route_version()
+        canonical_path = f"/{route}/{latest_version}"
+        if version != latest_version:
+            self.send_redirect(canonical_path)
+            return
+        self.send_index(route, latest_version)
+
+    def send_index(self, route: str, route_version: str) -> None:
+        index_path = ensure_child(FRONTEND_DIR, FRONTEND_DIR / "index.html")
+        if not index_path.is_file():
+            raise ApiError(404, "Frontend asset not found.")
+        html = index_path.read_text(encoding="utf-8")
+        config_script = (
+            "<script>"
+            "window.COPILOT_ADMIN_FRONTEND="
+            + json.dumps({"route": route, "routeVersion": route_version}, ensure_ascii=False, separators=(",", ":"))
+            + ";</script>"
+        )
+        html = html.replace('<link rel="stylesheet" href="styles.css" />', '<link rel="stylesheet" href="/styles.css" />')
+        html = html.replace('<script type="module" src="app.js"></script>', f'{config_script}\n    <script type="module" src="/app.js"></script>')
+        data = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def send_static(self, relative_path: str) -> None:
         static_path = ensure_child(FRONTEND_DIR, FRONTEND_DIR / relative_path)
@@ -894,8 +1386,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(201, self.app.create_job(str(body.get("type") or "custom"), body, trace_id))
             elif path == "/api/copilot/mode":
                 self.send_json(201, self.app.create_job("set_mode", body, trace_id))
-            elif path == "/api/copilot/input":
-                self.send_json(202, self.app.send_copilot_console_input(body, trace_id))
+            elif path in {"/api/ai-console/input", "/api/copilot/input"}:
+                self.send_json(202, self.app.send_ai_console_input(body, trace_id))
             elif path == "/api/regression/run":
                 self.send_json(201, self.app.create_job("run_regression", body, trace_id))
             elif path == "/api/frontend/events":
@@ -912,11 +1404,13 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 raise ApiError(404, "Endpoint not found.")
         except Exception as exc:
+            if self.is_client_disconnect(exc):
+                return
             self.handle_error(exc)
 
 
 def make_server(host: str, port: int, app: ControlPlaneBackend = APP) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = QuietThreadingHTTPServer((host, port), Handler)
     server.app = app  # type: ignore[attr-defined]
     return server
 

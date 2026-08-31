@@ -6,6 +6,10 @@ Detta dokument beskriver hur SPS-regressionsprojektet ska användas i praktiken 
 
 Control plane ska vara en administrativ yta runt arbetet, inte en ersättning för den gemensamma Copilot-sessionen eller den synliga browsern.
 
+För regressionsarbete ska en Copilot-session som startas via adminflödet alltid startas **fräscht**. Verktygen ska alltså inte återanvända en redan körande node-pty-session som kan bära med sig gammal kontext, utan stoppa den och starta om sessionen innan nästa regressionskörning.
+
+Vanlig fritext som skickas via AI-konsolen ska dessutom kompletteras automatiskt med en standardinstruktion: om instruktionen är oklar eller otydlig ska Copilot ställa klargörande frågor, och om instruktionen påverkar befintliga tester ska användaren informeras om konsekvenserna av ändringen. Rena kontrollinmatningar som `Esc`, `Tab` och slash-kommandon ska däremot inte skrivas om.
+
 Den praktiska modellen är därför:
 
 1. Windows-värden äger Copilot CLI, PowerShell, runtime-skript och den synliga browsern.
@@ -65,6 +69,61 @@ Control plane ska då visa en lokal webbsida, exempelvis `http://localhost:<port
 | Synlig browser | Gemensam testyta där användaren kan logga in och Copilot kan observera/styra UI. |
 | Web control plane | Administrativ vy för status, rapporter, Mermaid-graf, loggar och standardiserade åtgärder. |
 
+### 6.1 Verifiera att regressioner läses från backend
+
+Copilot-admins menyval ska öppnas via backendens URL, normalt `http://127.0.0.1:8765/`. Öppna inte `tools\source\copilot_admin_control_plane\frontend\index.html` direkt som fil, eftersom frontenden då inte kan läsa backend-API:er som `GET /api/regression/tests`.
+
+Varje huvudvy ska ha en egen kanonisk frontend-route med versions-id:
+
+| Vy | Route |
+| --- | --- |
+| Dashboard | `/dashboard/<version>` |
+| Manualer | `/manualer/<version>` |
+| AI-konsolen | `/ai-console/<version>` |
+| Regressioner | `/regressioner/<version>` |
+| Mermaid | `/mermaid/<version>` |
+| Rapporter | `/rapporter/<version>` |
+| Jobb | `/jobb/<version>` |
+| Loggar | `/loggar/<version>` |
+
+Backend ska redirecta kortformen, till exempel `/mermaid`, och gamla versions-URL:er, till exempel `/mermaid/<gammalt-id>`, till aktuell version. Det gör att en uppdaterad frontendmodul kan tvingas fram genom URL:en i stället för att användaren behöver gissa om browsern visar gammal state.
+
+När ett nytt regressionstest har lagts till ska backendens katalog-API visa testet innan det kan köras från UI:t:
+
+```powershell
+Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/regression/tests'
+```
+
+Om API:t visar testet men UI:t inte gör det ska browserfliken hårduppdateras. Om API:t inte visar testet kör adminstacken sannolikt med gammal backendprocess, fel repository-root eller gammal container och ska startas om via:
+
+```powershell
+.\stop_tool.ps1
+.\start_tool.ps1
+```
+
+### 7. Stoppa adminstacken säkert
+
+När den lokala adminstacken ska stängas ned används:
+
+```powershell
+.\stop_tool.ps1
+```
+
+Skriptet stoppar bara Copilot-sessioner och browserinstanser som verkligen kontrolleras av SPS-verktygen, samt tillhörande backend/webserver och host runner. För att göra detta säkert använder startvägarna ett gemensamt sessionsregister i `tmp\copilot_admin_control_plane\project-controlled-copilot-sessions.json`, och skriptet vägrar att döda andra Copilot-sessioner eller okända browser-/serverprocesser som inte matchar den förväntade adminstacken.
+
+## Synlig localhost-browser för Copilot-admin
+
+När arbetet gäller själva Copilot-admin-webben på localhost ska den synliga browsern startas separat från stage-browsern:
+
+```powershell
+.\runtime\start-collaborative-copilot-admin-browser.ps1
+```
+
+Den öppnar normalt `http://127.0.0.1:8765/` i en dedikerad synlig browser med egen debug-port. Den browsern är avsedd för användar-/agentsamarbete i frontendarbetet och ska hållas separat från både:
+
+- stage-browsern på debug-port `9222`
+- automationsbrowsern för real-E2E på debug-port `9322`
+
 ## Viktig avgränsning för Copilot-sessionen
 
 I första fungerande versionen ska Copilot-sessionen **inte** flyttas in i webgränssnittet.
@@ -73,7 +132,7 @@ Skälet är att projektets fungerande arbetssätt bygger på att användaren och
 
 Första säkra målbilden är därför:
 
-- webben visar färdiga kommandon och åtgärder
+- webben visar färdiga kommandon, AI-konsolen och åtgärder
 - host runnern kan returnera ett standardiserat prompt-/kommandoobjekt
 - användaren eller en kontrollerad host-side-brygga för in kommandot i Copilot CLI-sessionen
 - faktisk testkörning och dokumentändring sker fortfarande i den gemensamma Copilot CLI-sessionen

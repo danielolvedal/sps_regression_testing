@@ -6,7 +6,7 @@ param(
     [switch]$DryRun,
     [switch]$RestartExisting,
     [switch]$LogInput,
-    [string]$StartupModel = 'gpt-5-mini',
+    [string]$StartupModel = 'auto',
     [switch]$AllowAll = $true,
     [switch]$HiddenWindow,
     [int]$Port = 9222,

@@ -24,7 +24,7 @@ Windows implementation:
 | `copilot-status` | Poll node-pty Copilot state, transcript tail, queue status and `user_input_required`. | Always read-only. |
 | `copilot-start` | Start a visible node-pty-owned Copilot window. | Use only in operator startup flows. |
 | `copilot-stop` | Stop the active wrapper/window PIDs recorded in state. | Use explicit operator action or restart flow. |
-| `copilot-input` | Queue PTY input for the active Copilot session. | `-DryRun` validates payload without writing queue files. |
+| `copilot-input` | Queue PTY input for the active Copilot session. | `-DryRun` validates payload without writing SQLite queue rows. |
 | `browser-status` | Poll the collaborative browser debug endpoint. | Always read-only. |
 | `browser-start` | Start/reuse the visible collaborative browser using `runtime\start-collaborative-stage-browser.ps1`. | `-DryRun` returns the planned command without launching a browser. |
 | `browser-stop` | Stop the owned collaborative browser process recorded in state and verify the debug endpoint goes down. | Refuses to kill an unknown browser when no owned `processId` is recorded. |
@@ -56,9 +56,9 @@ POST bodies are JSON objects. Example:
 }
 ```
 
-## State and logs
+## State, session registry and logs
 
-Machine-readable state is written under `tmp\copilot_admin_runner_state`. JSONL logs are written under `tmp\copilot_admin_runner_logs` and include the roadmap base fields where available: `timestamp`, `level`, `component`, `event`, `trace_id`, `session_id`, `job_id`, `status` and structured `details`.
+Machine-readable node-pty state is written under `tmp\copilot_admin_runner_state` or another explicit runner-state directory such as the isolated real-E2E state. The same state directory now also contains `copilot-admin-transport.sqlite`, which stores the PTY input queue and time-stamped cross-layer trace events with transactional ordering. SPS-controlled Copilot start paths also register their project-owned process IDs and state directories in `tmp\copilot_admin_control_plane\project-controlled-copilot-sessions.json`, so `stop_tool.ps1` can stop only project-controlled sessions without touching unrelated user Copilot windows. JSONL logs are still written under `tmp\copilot_admin_runner_logs` for operator readability, while SQLite is the primary machine-readable source for queue state and latency correlation.
 
 ## Smoke tests
 

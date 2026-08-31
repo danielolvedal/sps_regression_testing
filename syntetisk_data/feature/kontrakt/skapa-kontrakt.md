@@ -20,6 +20,7 @@ Omfattar framför allt `Sätt upp nytt kontrakt`, `Skapa nytt korttidsavtal` och
 
 - `raw_data\kundtjanst-funktioner-data.json`
 - `raw_data\kundtjanst-funktioner-legacy-data.json`
+- `raw_data\ds-routing-inventory.json`
 - `raw_data\251203 Manual Hyra.apcoa.se.docx`
 - `raw_data\SPS_function_spec_en.xlsx`
 - `raw_data\SPS Funktionsträd – Utökad Specifik.txt`
@@ -39,6 +40,8 @@ Omfattar framför allt `Sätt upp nytt kontrakt`, `Skapa nytt korttidsavtal` och
 ## Hur området fungerar
 
 Skapaflödet ser ut att börja med **val av DS/anläggning**. Därefter förväntas användaren välja parkeringsform, plats- eller paketalternativ och mata in kunduppgifter. Extern manual för hyra.apcoa.se visar dessutom att skapaflödet innefattar personnummer, namn, adress och aviseringsmetod.
+
+`raw_data\ds-routing-inventory.json` är den aktuella verifierade källan för vilka DS som i stage går vidare i nya SPS-flödet respektive routas till legacy efter `Skapa kontrakt` steg 1. Den ska användas vid val av test-DS innan djupare kontraktssteg körs.
 
 ## Primära arbetsflöden
 
