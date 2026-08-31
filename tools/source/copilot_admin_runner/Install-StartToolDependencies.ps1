@@ -19,7 +19,7 @@ function Refresh-ProcessPath {
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
     $combined = @($machinePath, $userPath) | Where-Object { $_ }
-    if ($combined.Count -gt 0) {
+    if (@($combined).Count -gt 0) {
         $env:Path = ($combined -join ';')
     }
 }
@@ -295,12 +295,12 @@ Refresh-ProcessPath
 $postSystemState = Get-PreflightState
 Write-PreflightReport -State $postSystemState -Title 'Post-system-install pre-flight summary'
 
-if (($postSystemState.Checks | Where-Object { $_.Id -eq 'nodejs' -and $_.Status -eq 'ready' }).Count -gt 0) {
+if (@($postSystemState.Checks | Where-Object { $_.Id -eq 'nodejs' -and $_.Status -eq 'ready' }).Count -gt 0) {
     $repoInstallChecks = @($postSystemState.MissingRequired | Where-Object { $_.AutoInstallMethod -eq 'script' })
     foreach ($check in $repoInstallChecks) {
         $null = Invoke-RepoInstall -Check $check
     }
-} elseif (($postSystemState.Checks | Where-Object { $_.Id -eq 'node-pty-package' -and $_.Status -ne 'ready' }).Count -gt 0) {
+} elseif (@($postSystemState.Checks | Where-Object { $_.Id -eq 'node-pty-package' -and $_.Status -ne 'ready' }).Count -gt 0) {
     Write-Warning 'Skipping repo-local node-pty install because Node.js + npm is still unavailable.'
 }
 
