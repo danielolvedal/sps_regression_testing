@@ -131,6 +131,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `syntetisk_data\common\syntetisk-data-standard.md` - Fastställer obligatorisk struktur, sektioner och underhållsregler för alla syntetiska dokument.
 - `syntetisk_data\common\kallinventering.md` - Beskriver värdet, begränsningarna och rekommenderad användning för varje källa i `raw_data`.
 - `syntetisk_data\common\ordlista-och-namnstandard.md` - Normaliserar begrepp, förkortningar och språk-/namnvariationer mellan miljöer.
+- `syntetisk_data\common\ds-routing-index.md` - Sammanfattar den gemensamma DS-routinginventeringen för SPS-stage kontra legacy-stage och pekar till maskinläsbar rådata.
 - `syntetisk_data\lifecycle\kontraktets-livscykel.md` - Beskriver kontraktets hela livscykel från skapande till avslut och efterarbete.
 - `syntetisk_data\feature\kontrakt\skapa-kontrakt.md` - Normaliserar skapaflödet för kontrakt och korttidsavtal.
 - `syntetisk_data\feature\kontrakt\andra-kontrakt.md` - Beskriver hur befintliga kontrakt söks upp och ändras.
@@ -176,10 +177,12 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `testing\regression_test\regression-test-dependencies.mmd` - Fristående Mermaid-kod för regressionsflödenas beroendegraf.
 - `testing\regression_test\kontrakt-sok-anna-serviceportal-login.md` - Första manuella/shared-browser-regressionstestet för kontraktssökning på Anna och vidare login till serviceportalen i ny stage-flik.
 - `testing\regression_test\serviceportal-nytt-kontrakt-migrated-ds.md` - Manuellt/shared-browser-regressionstest som efter `A` använder `Admin -> Migrate DS` för att välja ett DS med status `Migrated` och verifiera nytt kontrakt-flödet i serviceportalen.
-- `testing\regression_test\serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - Manuellt/shared-browser-regressionstest som efter `B` verifierar checkoutdata, priser, avgifter, avtalsgodkännande och skapande av kontrakt, med krav på omprövning över minst 10 migrerade DS-kandidater innan stage-fel klassas som verifierad regression.
+- `testing\regression_test\serviceportal-nytt-kontrakt-sps-ds.md` - Manuellt/shared-browser-regressionstest som efter `A` använder output från `J` som styrande DS-förutsättning, väljer DS som finns i SPS med `routing: "sps-stage"` och verifierar nytt kontrakt-flödet i serviceportalen.
+- `testing\regression_test\serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - Manuellt/shared-browser-regressionstest som efter `B` eller `K` verifierar checkoutdata, priser, avgifter, avtalsgodkännande och skapande av kontrakt, med krav på omprövning över relevant DS-kandidatlista tills ett DS passerar eller alla kandidater har prövats.
 - `testing\regression_test\serviceportal-nytt-kontrakt-non-migrated-ds.md` - Manuellt/shared-browser-regressionstest som efter `A` använder `Admin -> Migrate DS` för att välja ett DS som inte är migrerat och verifiera köpbar produkt i serviceportalen.
 - `testing\regression_test\kundtjanst-svensk-lokalisering-och-terminologi.md` - Manuellt/shared-browser-regressionstest som granskar alla Kundtjänst-/CSC-menyer och sidor i stage för engelska, blandade eller andra utländska UI-uttryck och svensk terminologikonsekvens.
 - `testing\regression_test\wallboard-messages-layout-och-acknowledge.md` - Manuellt/shared-browser-regressionstest som skapar sex aktiva wallboardmeddelanden i Admin, verifierar `FullScreen`, `HalfScreen` och `OneThirdScreen` i Stage samt att ett meddelande kräver explicit `Acknowledge`.
+- `testing\regression_test\ds-routing-inventory-sps-vs-legacy.md` - Manuellt/shared-browser- och endpointstött dataregressionstest som skapar och håller uppdaterad en gemensam DS-routinglista för SPS kontra legacy.
 - `testing\regression_test\document-index-coverage.md` - Fastställer regressionstestet som kontrollerar att alla beständiga dokument/datafiler finns med i `dokument_index\index.md`.
 - `testing\regression_test\kallinventering-coverage.md` - Fastställer regressionstestet som kontrollerar att `kallinventering.md` hålls synkad med `raw_data`.
 - `testing\regression_test\regression-dependency-coverage.md` - Fastställer regressionstestet som kontrollerar att testmetadata, regressionskatalogen och den fristående Mermaid-koden hålls synkade.
@@ -188,6 +191,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 
 - `raw_data\kundtjanst-funktioner-data.json` - Rå browserextraktion av menyer och sidor från Kundtjänstportalen stage.
 - `raw_data\kundtjanst-funktioner-legacy-data.json` - Rå browserextraktion av menyer och sidor från Kundtjänstportalen stage legacy.
+- `raw_data\ds-routing-inventory.json` - Maskinläsbar DS-routinginventering från Kundtjänst-GUI:ts DS-dropdown och `Skapa kontrakt` steg 1 i stage.
 - `raw_data\sps_vs_legacy_summary.md` - Sammanfattar regressionsjämförelsen mellan nya stage och legacy, inklusive funktionsgap, stabilitet och språk-/namninkonsekvenser.
 - `raw_data\251203 Manual Hyra.apcoa.se.docx` - Extern/manualrelaterad referens för hyra.apcoa.se.
 - `raw_data\ANPR.docx` - Referensdokument om ANPR-relaterad funktionalitet.

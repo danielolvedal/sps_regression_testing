@@ -8,6 +8,11 @@ flowchart LR
     G["G: Verify checkout and create contract"]
     H["H: Audit CSC Swedish localization and terminology"]
     I["I: Verify wallboard layouts and acknowledge"]
+    J["J: Build DS routing inventory"]
+    K["K: Click Nytt kontrakt and use SPS-stage DS"]
     A --> B
     A --> C
+    A --> K
     B --> G
+    J --> K
+    K --> G

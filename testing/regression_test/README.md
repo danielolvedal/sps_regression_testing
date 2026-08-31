@@ -16,10 +16,12 @@ Fokus:
 - `regression-test-dependencies.mmd` - fristående Mermaid-kod för regressionsflödenas beroenden; denna fil ska hållas synkad med katalogen och testfilerna.
 - `kontrakt-sok-anna-serviceportal-login.md` - manuellt/shared-browser-test som verifierar kontraktssökning på Anna, att kontrakt öppnas i nya stage och att testet avslutas på kundens inloggade serviceportalsida via `Users -> Actions`.
 - `serviceportal-nytt-kontrakt-migrated-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, klickar på `Nytt kontrakt`, väljer ett DS med status `Migrated` via `Admin -> Migrate DS` och verifierar nytt kontrakt-flödet i serviceportalen.
-- `serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - manuellt/shared-browser-test som tar vid från slutläget i `B`, verifierar checkoutdata, priser, avgifter, avtalsgodkännande och kontraktsskapande samt kräver omprövning över minst 10 olika migrerade DS-kandidater innan ett stage-fel klassas som verifierad regression.
+- `serviceportal-nytt-kontrakt-sps-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, använder output från `J` som styrande DS-förutsättning, väljer ett DS som finns i SPS (`routing: "sps-stage"`) och verifierar nytt kontrakt-flödet i serviceportalen.
+- `serviceportal-checkout-verifiering-och-skapa-kontrakt.md` - manuellt/shared-browser-test som tar vid från slutläget i `B` eller `K`, verifierar checkoutdata, priser, avgifter, avtalsgodkännande och kontraktsskapande samt kräver omprövning över relevant DS-kandidatlista tills ett DS passerar eller alla kandidater har prövats.
 - `serviceportal-nytt-kontrakt-non-migrated-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, klickar på `Nytt kontrakt`, väljer ett DS som inte är migrerat via `Admin -> Migrate DS` och verifierar att en produkt kan köpas i serviceportalen.
 - `kundtjanst-svensk-lokalisering-och-terminologi.md` - manuellt/shared-browser-test som granskar alla Kundtjänst-/CSC-menyer och sidor i stage för engelska, blandade eller andra utländska UI-uttryck och svensk terminologikonsekvens.
 - `wallboard-messages-layout-och-acknowledge.md` - manuellt/shared-browser-test som skapar sex aktiva wallboardmeddelanden i Admin, verifierar `FullScreen`/`HalfScreen`/`OneThirdScreen` i Stage och bekräftar att ett meddelande kräver `Acknowledge`.
+- `ds-routing-inventory-sps-vs-legacy.md` - manuellt/shared-browser- och endpointstött dataregressionstest som skapar och håller uppdaterad den gemensamma DS-routinglistan i `raw_data\ds-routing-inventory.json` och `syntetisk_data\common\ds-routing-index.md`.
 - `document-index-coverage.md` - beskriver det obligatoriska testet som verifierar att alla beständiga dokument/datafiler finns i `dokument_index\index.md`.
 - `kallinventering-coverage.md` - beskriver det obligatoriska testet som verifierar att `syntetisk_data\common\kallinventering.md` täcker aktuellt innehåll i `raw_data` och att påverkan spåras vidare till syntetiska dokument.
 - `regression-dependency-coverage.md` - beskriver regressionstestet som verifierar att testmetadata, regressionskatalogen och den fristående Mermaid-filen är synkade.
@@ -44,7 +46,9 @@ När ett UI-regressionstest körs och agenten lär sig något som gör nästa k�
 
 För DS-drivna köp- eller kontraktsflöden gäller dessutom att en kandidat utan köpbar produkt eller ledig plats normalt ska dokumenteras och hoppas över, inte omedelbart klassas som ett regressionsfel.
 
-För `G` gäller en skärpt regel: om checkout eller kontraktsskapande fallerar ska hela `B -> G`-kedjan upprepas med nya migrerade DS-kandidater. Ett verifierat regressionsfel får rapporteras först när minst 10 olika migrerade DS-kandidater visar samma blockerande utfall eller samma systemiska felkategori.
+DS-val i nya regressioner ska i första hand baseras på den gemensamma DS-routinglistan som skapas av `J`: `raw_data\ds-routing-inventory.json` för maskinläsning och `syntetisk_data\common\ds-routing-index.md` för mänsklig översikt.
+
+För `G` gäller en skärpt regel: om checkout eller kontraktsskapande fallerar ska hela vald källkedja upprepas med nya relevanta DS-kandidater. I kedjan `A -> B -> G` betyder det migrerade siter/DS med status `Migrated` från `Admin -> Migrate DS`. I kedjan `A -> J -> K -> G` betyder det DS som finns i SPS enligt `J`, det vill säga rimliga kandidater med `routing: "sps-stage"` från `raw_data\ds-routing-inventory.json`. Ett verifierat regressionsfel får rapporteras först när den fullständiga kandidatgenomgången visar att inget DS passerar, eller när ett annat systemiskt fel har verifierats enligt rapporteringsstandarden.
 
 Alla namngivna regressionstester ska dessutom hållas synkade mellan:
 

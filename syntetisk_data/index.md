@@ -16,6 +16,7 @@ Syntetisk data ska:
 - `common\syntetisk-data-standard.md`
 - `common\kallinventering.md`
 - `common\ordlista-och-namnstandard.md`
+- `common\ds-routing-index.md`
 - `assets\images\README.md`
 
 ## Livscykel

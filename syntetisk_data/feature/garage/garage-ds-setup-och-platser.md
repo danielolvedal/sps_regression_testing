@@ -20,6 +20,7 @@ Omfattar garage- och platsadministration i både stage och legacy, inklusive så
 
 - `raw_data\kundtjanst-funktioner-data.json`
 - `raw_data\kundtjanst-funktioner-legacy-data.json`
+- `raw_data\ds-routing-inventory.json`
 - `raw_data\DS Grundinformation Garagekommentarer.docx`
 - `raw_data\Uthyrning Upplärning.docx`
 - `raw_data\SPS Funktionsträd.txt`
@@ -45,6 +46,8 @@ Omfattar garage- och platsadministration i både stage och legacy, inklusive så
 ## Hur området fungerar
 
 DS verkar vara den grundläggande organisatoriska enheten för en anläggning. Legacy visar ett större operativt verktygsset för zoner, platser, adresser, hyresprodukter och standardvärden. Garagekommentarer fungerar samtidigt som ett viktigt kunskapslager för kundtjänst med både publik och intern information.
+
+`raw_data\ds-routing-inventory.json` visar vilka DS som kan väljas i Kundtjänst-GUI:t och hur de routas från `Skapa kontrakt` steg 1 i stage. Källan ska användas för att välja rätt SPS- eller legacy-DS i test och för att skilja direkt upplagda SPS-DS från migrationsreferenser.
 
 ## Primära arbetsflöden
 
