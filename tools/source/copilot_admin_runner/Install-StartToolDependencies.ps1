@@ -7,7 +7,33 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
+# Determine repo root: prefer current working directory (script should be run from repo root), fall back to path relative to this script.
+$cwd = (Get-Location).Path
+$detectedIndex = Join-Path $cwd 'dokument_index\index.md'
+if (Test-Path $detectedIndex) {
+    $repoRoot = Resolve-Path $cwd
+} else {
+    $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
+}
+
+# Set COPILOT_ADMIN_TEST_OWNER to current Windows user if not already set
+if (-not $env:COPILOT_ADMIN_TEST_OWNER) {
+    $env:COPILOT_ADMIN_TEST_OWNER = $env:USERNAME
+}
+
+# Persist minimal installer config for reproducibility
+try {
+    $installerConfig = @{ repo_root = $repoRoot.Path; COPILOT_ADMIN_TEST_OWNER = $env:COPILOT_ADMIN_TEST_OWNER }
+    $installerConfigPath = Join-Path $repoRoot 'copilot_installer_config.json'
+    $installerConfig | ConvertTo-Json -Depth 3 | Out-File -FilePath $installerConfigPath -Encoding UTF8
+} catch {
+    Write-Verbose "Failed to persist installer config: $_"
+}
+
+# Playwright/e2e preferences (default behavior; can be overridden via env vars)
+$autoInstallPlaywright = $true
+$installPlaywrightBrowsers = @('chrome','edge')  # limited to Chrome and Edge as requested
+
 $nodePtyResolverPath = Join-Path $repoRoot 'runtime\windows\copilot-admin\node-pty\Resolve-NodePtyTooling.ps1'
 . $nodePtyResolverPath
 
@@ -188,6 +214,19 @@ function Get-PreflightState {
         $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'missing' -Details 'Node.js is unavailable, so node:sqlite support could not be verified.' -InstallCommands @('winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
     }
 
+    # Playwright / e2e checks: verify e2e package.json and node_modules/playwright-core
+    $e2eDir = Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\e2e'
+    $e2ePkg = Join-Path $e2eDir 'package.json'
+    if (Test-Path $e2ePkg) {
+        $nodeModulesPlaywright = Join-Path $e2eDir 'node_modules\playwright-core'
+        if (Test-Path $nodeModulesPlaywright) {
+            $checks.Add((New-DependencyCheck -Id 'playwright-e2e-deps' -Name 'Playwright e2e npm deps' -Category 'repo' -Required $true -Status 'ready' -Details $nodeModulesPlaywright))
+        } else {
+            $installCmd = "cd `"$e2eDir`" && npm install"
+            $checks.Add((New-DependencyCheck -Id 'playwright-e2e-deps' -Name 'Playwright e2e npm deps' -Category 'repo' -Required $true -Status 'missing' -Details 'node_modules/playwright-core missing in e2e folder.' -InstallCommands @($installCmd) -AutoInstallMethod 'script'))
+        }
+    }
+
     try {
         $copilotPath = Resolve-CopilotCliCommand
         $copilotProbe = Invoke-ExternalCommand -FilePath $copilotPath -Arguments @('--version')
@@ -249,6 +288,43 @@ function Write-PreflightReport {
     }
 }
 
+function Save-PreflightReport {
+    param(
+        [Parameter(Mandatory = $true)]$State,
+        [string]$PathRoot = $repoRoot
+    )
+
+    try {
+        $jsonPath = Join-Path $PathRoot 'install_report.json'
+        $mdPath = Join-Path $PathRoot 'install_report.md'
+        $State | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath -Encoding UTF8
+
+        $lines = @()
+        $lines += "# Install preflight report"
+        $lines += ""
+        $lines += "Passed: $($State.Passed)"
+        $lines += ""
+        $lines += "## Checks"
+        foreach ($check in $State.Checks) {
+            $lines += "- $($check.Name) | $($check.Category) | Required: $($check.Required) | Status: $($check.Status) | Details: $($check.Details)"
+        }
+        $lines += ""
+        $actionable = @($State.Checks | Where-Object { $_.Status -ne 'ready' -and $_.InstallCommands.Count -gt 0 })
+        if ($actionable.Count -gt 0) {
+            $lines += "## Suggested commands"
+            foreach ($check in $actionable) {
+                $lines += "- $($check.Name) ($($check.Status))"
+                foreach ($cmd in $check.InstallCommands) { $lines += "    - $cmd" }
+            }
+        }
+        $lines | Out-File -FilePath $mdPath -Encoding UTF8
+
+        Write-Host "Saved preflight report to:`n  $jsonPath`n  $mdPath"
+    } catch {
+        Write-Warning "Failed to save preflight report: $_"
+    }
+}
+
 function Invoke-WingetInstall {
     param(
         [Parameter(Mandatory = $true)]$Check,
@@ -275,22 +351,52 @@ function Invoke-WingetInstall {
 function Invoke-RepoInstall {
     param([Parameter(Mandatory = $true)]$Check)
 
-    if ($Check.Id -ne 'node-pty-package') {
-        return $false
+    switch ($Check.Id) {
+        'node-pty-package' {
+            Write-Host 'Installing repo-local node-pty dependency...'
+            try {
+                & $nodePtyInstallScript
+            } catch {
+                Write-Warning ("Repo dependency install failed: {0}" -f $_.Exception.Message)
+                return $false
+            }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning ("Repo dependency install failed with exit code {0}." -f $LASTEXITCODE)
+                return $false
+            }
+            return $true
+        }
+        'playwright-e2e-deps' {
+            if (-not $nodeReady) {
+                Write-Warning 'Skipping Playwright e2e npm install because Node.js + npm is unavailable.'
+                return $false
+            }
+            Write-Host 'Installing Playwright e2e npm dependencies...'
+            $e2eDir = Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\e2e'
+            try {
+                Push-Location $e2eDir
+                $npmCmd = $null
+                try { $npmCmd = Resolve-NodePtyCommand -Name npm } catch {}
+                if (-not $npmCmd) {
+                    Write-Warning 'npm not found; cannot run npm install.'
+                    Pop-Location
+                    return $false
+                }
+                & $npmCmd install
+                $rc = $LASTEXITCODE
+                Pop-Location
+                if ($rc -ne 0) {
+                    Write-Warning ("npm install failed with exit code {0}." -f $rc)
+                    return $false
+                }
+            } catch {
+                Write-Warning ("Playwright e2e npm install failed: {0}" -f $_.Exception.Message)
+                return $false
+            }
+            return $true
+        }
+        default { return $false }
     }
-
-    Write-Host 'Installing repo-local node-pty dependency...'
-    try {
-        & $nodePtyInstallScript
-    } catch {
-        Write-Warning ("Repo dependency install failed: {0}" -f $_.Exception.Message)
-        return $false
-    }
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning ("Repo dependency install failed with exit code {0}." -f $LASTEXITCODE)
-        return $false
-    }
-    return $true
 }
 
 Refresh-ProcessPath
@@ -300,8 +406,10 @@ Write-PreflightReport -State $initialState -Title 'Initial pre-flight summary'
 if ($PreflightOnly) {
     if ($initialState.Passed) {
         Write-Host 'Pre-flight passed. Installation is already complete.'
+        try { Save-PreflightReport -State $initialState -PathRoot $repoRoot } catch {}
         exit 0
     }
+    try { Save-PreflightReport -State $initialState -PathRoot $repoRoot } catch {}
     Write-Error 'Pre-flight failed. Resolve the missing dependencies above and re-run install_tool.ps1.'
 }
 
@@ -336,6 +444,9 @@ if (@($postSystemState.Checks | Where-Object { $_.Id -eq 'nodejs' -and $_.Status
 Refresh-ProcessPath
 $finalState = Get-PreflightState
 Write-PreflightReport -State $finalState -Title 'Final pre-flight summary'
+
+# Save machine-readable and human-readable report to repo root
+try { Save-PreflightReport -State $finalState -PathRoot $repoRoot } catch { Write-Warning "Saving preflight report failed: $_" }
 
 if (-not $finalState.Passed) {
     Write-Error 'Installation is not complete. Fix the remaining pre-flight failures above and re-run install_tool.ps1.'

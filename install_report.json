@@ -1,0 +1,150 @@
+{
+  "Checks": [
+    {
+      "Id": "windows-platform",
+      "Name": "Windows + Windows PowerShell",
+      "Category": "platform",
+      "Required": true,
+      "Status": "ready",
+      "Details": "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "InstallCommands": [],
+      "AutoInstallMethod": "",
+      "WingetId": ""
+    },
+    {
+      "Id": "winget",
+      "Name": "WinGet",
+      "Category": "optional",
+      "Required": false,
+      "Status": "ready",
+      "Details": "C:\\Users\\epedersen-ep\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe",
+      "InstallCommands": [],
+      "AutoInstallMethod": "",
+      "WingetId": ""
+    },
+    {
+      "Id": "python",
+      "Name": "Python 3",
+      "Category": "system",
+      "Required": true,
+      "Status": "ready",
+      "Details": "C:\\Program Files\\Python312\\python.exe",
+      "InstallCommands": [],
+      "AutoInstallMethod": "",
+      "WingetId": ""
+    },
+    {
+      "Id": "python-sqlite",
+      "Name": "Python sqlite3 runtime",
+      "Category": "system",
+      "Required": true,
+      "Status": "ready",
+      "Details": "sqlite3=3.49.1",
+      "InstallCommands": [],
+      "AutoInstallMethod": "",
+      "WingetId": ""
+    },
+    {
+      "Id": "nodejs",
+      "Name": "Node.js LTS + npm",
+      "Category": "system",
+      "Required": true,
+      "Status": "ready",
+      "Details": "node=v20.19.5; npm=10.8.2",
+      "InstallCommands": [],
+      "AutoInstallMethod": "",
+      "WingetId": ""
+    },
+    {
+      "Id": "node-sqlite",
+      "Name": "Node.js node:sqlite runtime",
+      "Category": "system",
+      "Required": true,
+      "Status": "missing",
+      "Details": "Installed Node.js could not load the built-in node:sqlite module required by the PTY transport.",
+      "InstallCommands": [
+        "winget upgrade --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements",
+        "If node:sqlite is still unavailable, install a newer Node.js release that includes the built-in node:sqlite module."
+      ],
+      "AutoInstallMethod": "winget",
+      "WingetId": "OpenJS.NodeJS.LTS"
+    },
+    {
+      "Id": "playwright-e2e-deps",
+      "Name": "Playwright e2e npm deps",
+      "Category": "repo",
+      "Required": true,
+      "Status": "missing",
+      "Details": "node_modules/playwright-core missing in e2e folder.",
+      "InstallCommands": [
+        "cd \"C:\\Apcoa-Git\\sps_regression_testing\\tools\\source\\copilot_admin_control_plane\\e2e\" && npm install"
+      ],
+      "AutoInstallMethod": "script",
+      "WingetId": ""
+    },
+    {
+      "Id": "copilot-cli",
+      "Name": "GitHub Copilot CLI",
+      "Category": "system",
+      "Required": true,
+      "Status": "ready",
+      "Details": "GitHub Copilot CLI 1.0.82.\r\nRun 'copilot update' to check for updates.",
+      "InstallCommands": [],
+      "AutoInstallMethod": "",
+      "WingetId": ""
+    },
+    {
+      "Id": "browser",
+      "Name": "Microsoft Edge or Google Chrome",
+      "Category": "system",
+      "Required": true,
+      "Status": "ready",
+      "Details": "Microsoft Edge at C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+      "InstallCommands": [],
+      "AutoInstallMethod": "",
+      "WingetId": ""
+    },
+    {
+      "Id": "node-pty-package",
+      "Name": "node-pty repo dependency",
+      "Category": "repo",
+      "Required": true,
+      "Status": "ready",
+      "Details": "C:\\Apcoa-Git\\sps_regression_testing\\tools\\source\\copilot_admin_runner\\node_pty_poc\\node_modules\\node-pty",
+      "InstallCommands": [],
+      "AutoInstallMethod": "",
+      "WingetId": ""
+    }
+  ],
+  "Passed": false,
+  "MissingRequired": [
+    {
+      "Id": "node-sqlite",
+      "Name": "Node.js node:sqlite runtime",
+      "Category": "system",
+      "Required": true,
+      "Status": "missing",
+      "Details": "Installed Node.js could not load the built-in node:sqlite module required by the PTY transport.",
+      "InstallCommands": [
+        "winget upgrade --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements",
+        "If node:sqlite is still unavailable, install a newer Node.js release that includes the built-in node:sqlite module."
+      ],
+      "AutoInstallMethod": "winget",
+      "WingetId": "OpenJS.NodeJS.LTS"
+    },
+    {
+      "Id": "playwright-e2e-deps",
+      "Name": "Playwright e2e npm deps",
+      "Category": "repo",
+      "Required": true,
+      "Status": "missing",
+      "Details": "node_modules/playwright-core missing in e2e folder.",
+      "InstallCommands": [
+        "cd \"C:\\Apcoa-Git\\sps_regression_testing\\tools\\source\\copilot_admin_control_plane\\e2e\" && npm install"
+      ],
+      "AutoInstallMethod": "script",
+      "WingetId": ""
+    }
+  ],
+  "WingetPath": "C:\\Users\\epedersen-ep\\AppData\\Local\\Microsoft\\WindowsApps\\winget.exe"
+}
