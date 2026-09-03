@@ -25,10 +25,17 @@ const requiredTestIds = [
   "view-ai-console",
   "ai-console",
   "ai-console-output",
+  "ai-console-interaction",
+  "ai-console-interaction-question",
+  "ai-console-interaction-options",
   "ai-console-input",
   "ai-console-send",
+  "ai-console-send-enter",
+  "ai-console-send-up",
+  "ai-console-send-down",
   "ai-console-send-esc",
   "ai-console-send-tab",
+  "ai-console-send-ctrl-d",
   "copilot-start-session-button",
   "ai-console-status",
   "copilot-window-mode",
@@ -109,7 +116,7 @@ if (!js.includes("hidden_window")) failures.push("Missing Copilot window visibil
 if (!js.includes("clear_line")) failures.push("Missing AI console clear-line payload.");
 if (!js.includes("Disconnected - please wait until Copilot is online")) failures.push("Missing disconnected AI console empty state.");
 if (!js.includes("setSemanticBadge")) failures.push("Missing semantic AI console badge renderer.");
-for (const phrase of ["status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "ai-console-output", "ai-console-form", "ai-console-special-actions"]) {
+for (const phrase of ["status-red", "status-yellow", "status-green", "semantic-green", "semantic-yellow", "semantic-red", "semantic-gray", "mermaid-viewport", "markdown-reader", "ai-console-output", "ai-console-form", "ai-console-special-actions", "ai-console-interaction", "ai-console-interaction-option", "copilot-prompt-box", "copilot-prompt-cursor", "copilot-prompt-footer"]) {
   if (!css.includes(phrase)) failures.push(`Missing CSS affordance: ${phrase}`);
 }
 for (const phrase of ["manuals-grid", "manuals-card", "manuals-hero"]) {

@@ -126,6 +126,8 @@ class FrontendBrowserE2ETests(unittest.TestCase):
         cls.previous_node_pty_state_dir = app.NODE_PTY_STATE_DIR
         cls.previous_node_pty_state_path = app.NODE_PTY_STATE_PATH
         cls.previous_node_pty_window_state_path = app.NODE_PTY_WINDOW_STATE_PATH
+        cls.previous_reports_dir = app.REPORTS_DIR
+        cls.previous_draft_tests_dir = app.DRAFT_TESTS_DIR
         app.STATE_DIR = cls.test_state_dir
         app.JOBS_PATH = cls.test_state_dir / "jobs.json"
         app.HOST_STATE_PATH = cls.test_state_dir / "injected-host-state.json"
@@ -135,6 +137,44 @@ class FrontendBrowserE2ETests(unittest.TestCase):
         app.NODE_PTY_STATE_DIR.mkdir(parents=True, exist_ok=True)
         app.NODE_PTY_STATE_PATH = app.NODE_PTY_STATE_DIR / "node-pty-copilot-session.json"
         app.NODE_PTY_WINDOW_STATE_PATH = app.NODE_PTY_STATE_DIR / "node-pty-copilot-window.json"
+        app.REPORTS_DIR = cls.test_state_dir / "reports"
+        (app.REPORTS_DIR / "20260903v1" / "RegressionError01").mkdir(parents=True, exist_ok=True)
+        (app.REPORTS_DIR / "20260903v1" / "summary.md").write_text(
+            "# Summary\n\n| Test | Status | Detail |\n| --- | --- | --- |\n| regression-draft-smoke | failed | RegressionError01 |\n",
+            encoding="utf-8",
+        )
+        (app.REPORTS_DIR / "20260903v1" / "RegressionError01" / "report.md").write_text(
+            "# RegressionError01\n\nLocal report sample.\n",
+            encoding="utf-8",
+        )
+        app.DRAFT_TESTS_DIR = cls.test_state_dir / "regression-drafts"
+        draft_dir = app.DRAFT_TESTS_DIR / "danielolvedal"
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        (draft_dir / "draft-smoke.md").write_text(
+            """# Regressionstest - draft smoke
+
+## Test-ID
+
+regression-draft-smoke
+
+## Summary
+
+Smoke-test for a per-user regression draft.
+
+## Dependencies
+
+- none
+
+## Typ
+
+Manual draft regression.
+
+## Owner
+
+danielolvedal
+""",
+            encoding="utf-8",
+        )
         cls.server = app.make_server("127.0.0.1", 0, app.ControlPlaneBackend(REPO_ROOT))
         cls.port = cls.server.server_address[1]
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -152,6 +192,8 @@ class FrontendBrowserE2ETests(unittest.TestCase):
         app.NODE_PTY_STATE_DIR = cls.previous_node_pty_state_dir
         app.NODE_PTY_STATE_PATH = cls.previous_node_pty_state_path
         app.NODE_PTY_WINDOW_STATE_PATH = cls.previous_node_pty_window_state_path
+        app.REPORTS_DIR = cls.previous_reports_dir
+        app.DRAFT_TESTS_DIR = cls.previous_draft_tests_dir
         shutil.rmtree(cls.test_state_dir, ignore_errors=True)
 
     def setUp(self) -> None:
@@ -240,6 +282,79 @@ class FrontendBrowserE2ETests(unittest.TestCase):
             process.terminate()
             self.fail("Browser did not expose a CDP page target.")
         return process, CdpClient(websocket_url), profile
+
+    def test_ai_console_renders_prompt_box_like_console(self) -> None:
+        self.request(
+            "POST",
+            "/api/test/inject-host-state",
+            {
+                "copilot_state": {
+                    "status": "running",
+                    "session_id": "browser-e2e-copilot",
+                    "input_queue_dir": str(REPO_ROOT / "tmp" / "copilot_admin_control_plane" / "browser-e2e-input-queue"),
+                    "input_queue": {"pending": 0},
+                    "user_input_required": True,
+                    "user_input_reason": "interactive_choice_prompt",
+                    "visible_window_expected": True,
+                    "last_output_tail": "C:\\Copilot_projects\\SPS [⎇ master*]                                                                                                  Session: 1390.31 AIC used \n╻▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄\n┃\n╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n v1.0.82 downloaded · run /restart to apply · ← open sidebar · / commands · ? help · tab next tab                                          Auto → GPT-5.6 Terra ",
+                }
+            },
+        )
+        process, cdp, profile = self.launch_browser()
+        try:
+            cdp.command("Runtime.enable")
+            cdp.command("Page.enable")
+            cdp.command("Page.navigate", {"url": f"http://127.0.0.1:{self.port}/"})
+            for _ in range(50):
+                ready = cdp.command("Runtime.evaluate", {"expression": "document.readyState", "returnByValue": True}).get("result", {}).get("value")
+                if ready == "complete":
+                    break
+                time.sleep(0.1)
+            verification = cdp.command(
+                "Runtime.evaluate",
+                {
+                    "expression": r"""
+(async () => {
+  const failures = [];
+  const q = (id) => document.querySelector(`[data-testid="${id}"]`);
+  const waitFor = async (predicate, message, timeout = 7000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeout) {
+      if (await predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    failures.push(message);
+  };
+  q("nav-ai-console").click();
+  await waitFor(() => q("view-ai-console").classList.contains("active"), "AI console view did not open.");
+  await waitFor(() => q("ai-console-output").querySelector(".copilot-prompt-box"), "Prompt box was not rendered.");
+  const output = q("ai-console-output");
+  return {
+    failures,
+    hasPromptBox: Boolean(output.querySelector(".copilot-prompt-box")),
+    hasCursor: Boolean(output.querySelector(".copilot-prompt-cursor")),
+    hasFooter: output.textContent.includes("v1.0.82 downloaded"),
+    noRawBars: !output.textContent.includes("▄▄▄▄") && !output.textContent.includes("▀▀▀▀"),
+  };
+})()
+""",
+                    "awaitPromise": True,
+                    "returnByValue": True,
+                },
+            )
+            if "exceptionDetails" in verification:
+                self.fail(json.dumps(verification["exceptionDetails"], ensure_ascii=False))
+            value = verification.get("result", {}).get("value", {})
+            self.assertEqual([], value.get("failures"), "\n".join(value.get("failures", [])))
+            self.assertTrue(value.get("hasPromptBox"))
+            self.assertTrue(value.get("hasCursor"))
+            self.assertTrue(value.get("hasFooter"))
+            self.assertTrue(value.get("noRawBars"))
+        finally:
+            cdp.close()
+            process.terminate()
+            process.wait(timeout=10)
+            shutil.rmtree(profile, ignore_errors=True)
 
     def test_frontend_in_real_browser(self) -> None:
         process, cdp, profile = self.launch_browser()
@@ -358,7 +473,7 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
         input_queue: { pending: 0 },
         user_input_required: true,
         user_input_reason: "confirmation_prompt",
-        last_output_tail: "Browser E2E transcript updated after AI console input.\n$ErrorActionPreference='Stop'; $targets = Invoke-WebRequest -UseBasicParsing '' -Ti…\n╭────╮\n│ Run safe host-runner smoke tests │\n│ Do you want to run this command? │\n│ ❯ 1. Yes │\n│ ↑/↓ to navigate · enter to select · esc to cancel │\n╰────╯5s6\b7\b8\b910\b1\b2\b3\b4\b5\b6\b7\b8\b9 2m 0\b1\b2  Current Pull requests"
+        last_output_tail: "Browser E2E transcript updated after AI console input.\n$ErrorActionPreference='Stop'; $targets = Invoke-WebRequest -UseBasicParsing '' -Ti…\n╭────╮\n│ Run safe host-runner smoke tests │\n│ Do you want to run this command? │\n│ ❯ 1. Yes │\n│ 2. No │\n│ 3. Other (type your answer) │\n│ ↑/↓ to navigate · enter to select · tab next · ctrl+d decline · esc to cancel │\n╰────╯\nv1.0.82 downloaded · run /restart to apply · ← open sidebar · / commands · ? help · tab next tab                                          Auto → GPT-5.6 Terra\n5s6\b7\b8\b910\b1\b2\b3\b4\b5\b6\b7\b8\b9 2m 0\b1\b2  Current Pull requests"
       }
     })
   });
@@ -366,9 +481,24 @@ window.addEventListener("unhandledrejection", (event) => window.__copilotAdminE2
   assert(q("ai-console-output").textContent.includes("Current Pull requests"), "AI console should preserve real content after timer redraw artifacts.");
   assert(!q("ai-console-output").textContent.includes("192939") && !q("ai-console-output").textContent.includes("5s6"), "AI console should suppress timer redraw artifact lines.");
   assert(!q("ai-console-output").textContent.includes("\b"), "AI console should not show raw terminal backspace characters.");
-  assert(q("ai-console-output").textContent.includes("╭") && q("ai-console-output").textContent.includes("│"), "AI console should preserve raw TUI box drawing characters from the mirrored terminal.");
-  assert(q("ai-console-output").textContent.includes("❯ 1. Yes"), "AI console should preserve the selected Copilot option from the mirrored terminal.");
-  assert(q("ai-console-hint").textContent === "Copilot väntar på input.", "AI console hint should be concise and user-facing.");
+  assert(q("ai-console-output").querySelector(".copilot-prompt-box"), "AI console should render the mirrored prompt area as a prompt box.");
+  assert(q("ai-console-output").querySelector(".copilot-prompt-cursor"), "AI console should render a visible prompt cursor.");
+  assert(q("ai-console-output").textContent.includes("v1.0.82 downloaded"), "AI console should keep the prompt footer/help text.");
+  await waitFor(() => !q("ai-console-interaction").hidden, "Interactive choice panel should be shown when Copilot waits for a selection.");
+  assert(q("ai-console-ready").textContent.includes("Svar"), "AI console readiness badge should switch to response mode.");
+  assert(q("ai-console-send").textContent.includes("svar"), "AI console primary send action should reflect response mode.");
+  assert(q("ai-console-input").placeholder.includes("väntar på ett svar"), "AI console placeholder should explain interactive response mode.");
+  assert(q("ai-console-hint").textContent.includes("väntar på ett val"), "AI console hint should explain the selection state.");
+  const quickOptions = Array.from(document.querySelectorAll("[data-interactive-option-index]"));
+  assert(quickOptions.length >= 2, "Interactive choice prompt should render quick option buttons.");
+  assert(quickOptions.some((button) => button.textContent.includes("Yes")), "Interactive choice panel should expose Yes.");
+  const noButton = quickOptions.find((button) => button.textContent.includes("No"));
+  assert(noButton, "Interactive choice panel should expose No.");
+  noButton.click();
+  await waitFor(async () => {
+    const consoleState = await fetch("/api/ai-console").then((r) => r.json());
+    return consoleState.input_queue && consoleState.input_queue.pending >= 4;
+  }, "Interactive quick-select should queue a raw choice response.");
 
   q("nav-dashboard").click();
   q("testing-mode-button").click();

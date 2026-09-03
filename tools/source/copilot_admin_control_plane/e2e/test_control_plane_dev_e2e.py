@@ -34,6 +34,8 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         cls.previous_node_pty_state_dir = app.NODE_PTY_STATE_DIR
         cls.previous_node_pty_state_path = app.NODE_PTY_STATE_PATH
         cls.previous_node_pty_window_state_path = app.NODE_PTY_WINDOW_STATE_PATH
+        cls.previous_reports_dir = app.REPORTS_DIR
+        cls.previous_draft_tests_dir = app.DRAFT_TESTS_DIR
         app.STATE_DIR = cls.test_state_dir
         app.JOBS_PATH = cls.test_state_dir / "jobs.json"
         app.HOST_STATE_PATH = cls.test_state_dir / "injected-host-state.json"
@@ -43,6 +45,44 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         app.NODE_PTY_STATE_DIR.mkdir(parents=True, exist_ok=True)
         app.NODE_PTY_STATE_PATH = app.NODE_PTY_STATE_DIR / "node-pty-copilot-session.json"
         app.NODE_PTY_WINDOW_STATE_PATH = app.NODE_PTY_STATE_DIR / "node-pty-copilot-window.json"
+        app.REPORTS_DIR = cls.test_state_dir / "reports"
+        (app.REPORTS_DIR / "20260903v1" / "RegressionError01").mkdir(parents=True, exist_ok=True)
+        (app.REPORTS_DIR / "20260903v1" / "summary.md").write_text(
+            "# Summary\n\n| Test | Status | Detail |\n| --- | --- | --- |\n| regression-draft-smoke | failed | RegressionError01 |\n",
+            encoding="utf-8",
+        )
+        (app.REPORTS_DIR / "20260903v1" / "RegressionError01" / "report.md").write_text(
+            "# RegressionError01\n\nLocal report sample.\n",
+            encoding="utf-8",
+        )
+        app.DRAFT_TESTS_DIR = cls.test_state_dir / "regression-drafts"
+        draft_dir = app.DRAFT_TESTS_DIR / "danielolvedal"
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        (draft_dir / "draft-smoke.md").write_text(
+            """# Regressionstest - draft smoke
+
+## Test-ID
+
+regression-draft-smoke
+
+## Summary
+
+Smoke-test for a per-user regression draft.
+
+## Dependencies
+
+- none
+
+## Typ
+
+Manual draft regression.
+
+## Owner
+
+danielolvedal
+""",
+            encoding="utf-8",
+        )
         cls.backend = app.ControlPlaneBackend(REPO_ROOT)
         cls.server = app.make_server("127.0.0.1", 0, cls.backend)
         cls.port = cls.server.server_address[1]
@@ -61,6 +101,8 @@ class ControlPlaneDevE2ETests(unittest.TestCase):
         app.NODE_PTY_STATE_DIR = cls.previous_node_pty_state_dir
         app.NODE_PTY_STATE_PATH = cls.previous_node_pty_state_path
         app.NODE_PTY_WINDOW_STATE_PATH = cls.previous_node_pty_window_state_path
+        app.REPORTS_DIR = cls.previous_reports_dir
+        app.DRAFT_TESTS_DIR = cls.previous_draft_tests_dir
         shutil.rmtree(cls.test_state_dir, ignore_errors=True)
 
     def setUp(self) -> None:

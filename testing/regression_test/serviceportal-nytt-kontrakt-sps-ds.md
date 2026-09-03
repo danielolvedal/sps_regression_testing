@@ -60,6 +60,8 @@ Om routinglistan saknas, är äldre än rimligt för aktuell testperiod eller sa
 
 Om ett valt SPS-DS inte har någon köpbar produkt eller ledig plats ska testet inte underkännas direkt. I stället ska agenten dokumentera observationen, välja nästa tidigare oprövade `sps-stage`-kandidat från `raw_data\ds-routing-inventory.json` och försöka igen.
 
+Om serviceportalen under körningen tappar assisted-login och visar inloggningskrav (till exempel `Logga in med BankID`, `Logga in med APCOA konto` eller `Account/Login`) får testet inte försöka fortsätta i samma serviceportalflik. Körningen ska då återgå till Kundtjänstportalen och köra om `A` för att skapa en ny assisted-login-session innan nästa K-försök.
+
 Testet ska först markeras som underkänt när:
 
 - flera rimliga `sps-stage`-kandidater har prövats utan att det går att nå den avsedda verifieringspunkten, eller
@@ -88,6 +90,11 @@ Testet ska först markeras som underkänt när:
 16. Klicka på `Nästa`.
 17. Kontrollera att användaren fortfarande är inloggad.
 18. Kontrollera att personnummer är förifyllt.
+19. Om sidan i något steg i stället visar inloggningskrav (`BankID`, `APCOA konto` eller `Account/Login`):
+    - markera aktuell kandidat som avbruten på grund av utgången assisted-login-session
+    - gå tillbaka till Kundtjänstportalen
+    - kör om `A` för att återetablera assisted login
+    - starta om `K` från steg 1 med nästa tidigare oprövade kandidat
 
 ## Förväntat resultat
 
@@ -112,6 +119,8 @@ Testet ska först markeras som underkänt när:
 - Serviceportalens sökterm ska i första hand vara `dsName`. `dsNumber` ska inte användas som enda sökterm om inte testaren uttryckligen verifierar att serviceportalen stöder det för aktuell kandidat.
 - Om flera liknande resultat visas i serviceportalen ska valet matchas mot `dsName` och, när möjligt, mot informationen i `selectedDropdownText` från routinglistan.
 - Kandidater med `landingUrl` under `https://sps-stage.europark.local/CustomerService/CreateNewContractStep2` är prioriterade eftersom `J` redan har verifierat att de stannar i SPS i Kundtjänstflödet.
+- Starta K från den faktiska A-fliken som visar Anna-läge och klicka `Nytt kontrakt`; direkt navigation till `https://web-stage.europark.local/` eller `https://web-stage.europark.local/myaccount/index` får inte användas som ersättning för A eftersom assisted-login-läget då kan tappas.
+- Assisted-login är tidsbegränsad. Om serviceportalen visar inloggningsvägg under K ska testet återstarta från Kundtjänstportalen via A, inte försöka forcera inloggning i serviceportalen.
 
 ## Tekniska observationer
 
@@ -120,6 +129,8 @@ Testet ska först markeras som underkänt när:
 - `Admin -> Migrate DS` är bara referensdata i detta test och får inte användas för att filtrera bort DS som är upplagda direkt i SPS.
 - Ingen produkt till försäljning är i sig inte ett regressionsfel; det kan vara en konfigurationsfråga på det specifika DS:t.
 - Om en kandidat som `J` klassificerat som `sps-stage` ändå routar till `/lgcy/` eller legacy-host i serviceportalen ska observationen dokumenteras som potentiell routingregression eller skillnad mellan Kundtjänstflöde och serviceportalflöde.
+- Regression Mode-observation 2026-08-31: K får inte starta om serviceportalens debug-target inte är responsiv eller om sidan inte uttryckligen visar `Anna Walldén`. I det läget är kedjan blockerad i A-ledet, inte underkänd i K.
+- Regression Mode-observation 2026-09-01: assisted-login kan löpa ut mellan försök. När serviceportalen då visar `Logga in med BankID`/`Logga in med APCOA konto` är K-försöket ogiltigt tills A körs om och etablerar en ny assisterad session.
 
 ## Felutfall
 
@@ -151,8 +162,8 @@ Dokumentera minst:
 ## Senast verifierad körning
 
 - **Datum:** Ej verifierad efter skapande.
-- **Körläge:** Learning Mode
-- **Status:** Testdefinition skapad för kedjan `A -> J -> K -> G`.
+- **Körläge:** Regression Mode-försök 2026-08-31
+- **Status:** Blockerad före K/G. `J` hade giltig output från 2026-08-31 med 136 `sps-stage`-kandidater, men A:s serviceportalflik kunde inte verifieras som responsiv och inloggad som `Anna Walldén` efter assisted login. Ingen K-kandidat ska räknas som prövad i detta försök.
 
 ## Relaterade dokument
 

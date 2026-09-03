@@ -14,7 +14,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `tools\docs\katalogstruktur.md` - Fastlåser katalogstrukturen och reglerna för var olika typer av artefakter ska lagras.
 - `tools\docs\raw-data-forandringsprocess.md` - Fastställer den obligatoriska processen när filer i `raw_data` tillkommer, ändras eller tas bort.
 - `tools\docs\regressionstest-arbetsmodell.md` - Fastställer hur agenter ska tolka kommandon om regressionstest och hur UI-regressioner körs som instruktionsstyrda testfall.
-- `tools\docs\regression-rapportering.md` - Defines the formal-English reporting standard for `test_reports`, including summaries and verified defect folders.
+- `tools\docs\regression-rapportering.md` - Defines the formal-English reporting standard for local regression reports under `tmp\regression_local\<owner>\reports`, including summaries and verified defect folders.
 - `tools\docs\browser-samarbete-stage-session.md` - Beskriver standardmodellen för synlig browser-session med agent/användar-samarbete.
 - `tools\docs\copilot-admin-browser-lagen.md` - Förtydligar skillnaden mellan synlig localhost-browser för manuellt Copilot-admin-arbete, stage-browsern och den isolerade automationsbrowsern för real-E2E.
 - `tools\docs\copilot-admin-runner-poc.md` - Beskriver den första host-runner-POC:n för status, rapportläsning, Mermaid-graf och tre möjliga bryggspår mellan Windows och Docker-control-plane.
@@ -173,6 +173,8 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `testing\funktional_test\README.md` - Beskriver vad som ska täckas av funktionella tester och hur sådana testfall ska struktureras.
 - `testing\funktional_test\shared-browser-session-notes.md` - Dokumenterar testnyttan med att öppna flera SPS-flikar i samma synliga browserfönster.
 - `testing\regression_test\README.md` - Beskriver vad som ska täckas av regressionstester och hur återkommande verifiering ska organiseras.
+- `testing\regression_drafts\README.md` - Beskriver hur personliga regressionstestutkast hålls separerade per användare innan de promotas till delade regressionstester.
+- `testing\regression_drafts\danielolvedal\README.md` - Beskriver arbetsytan för Daniels personliga regressionstestutkast och hur de ska promotas vidare.
 - `testing\regression_test\regression-test-catalog.md` - Katalog över namngivna regressionstester med kortreferenser, sammanfattningar och Mermaid-baserade beroenden.
 - `testing\regression_test\regression-test-dependencies.mmd` - Fristående Mermaid-kod för regressionsflödenas beroendegraf.
 - `testing\regression_test\kontrakt-sok-anna-serviceportal-login.md` - Första manuella/shared-browser-regressionstestet för kontraktssökning på Anna och vidare login till serviceportalen i ny stage-flik.
@@ -213,7 +215,7 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 ## Huvudregler för framtida tillägg
 
 - Nya dokument ska läggas i rätt katalog enligt `tools\docs\katalogstruktur.md`.
-- Nya beständiga dokument ska registreras här med kort sammanfattning, utom körningsoutput under `test_reports`.
+- Nya beständiga dokument ska registreras här med kort sammanfattning, utom lokal körningsoutput under `tmp`.
 - Temporära filer ska aldrig indexeras här; de ska ligga i `tmp`.
 - `runtime\test-document-index.ps1` är ett obligatoriskt test och ska alltid köras när beständiga dokument/datafiler skapas, ändras, flyttas eller tas bort.
 - När `raw_data` ändras ska `runtime\test-kallinventering-coverage.ps1` också köras och `syntetisk_data\common\kallinventering.md` hållas uppdaterad.

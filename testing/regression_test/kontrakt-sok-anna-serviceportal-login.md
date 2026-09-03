@@ -84,6 +84,8 @@ Verifiera att sökflödet för kontrakt fungerar i nya stage, att kontraktslänk
 - Den funktionen POST:ar till `/EditContract/SetUserAssistedLogin` och öppnar därefter en ny flik via `window.open(...)`.
 - Den första öppnade URL:en kan vara `https://web-stage.europark.local/account/assistedLogin/{token}`, men testet ska verifiera att slutmålet landar på `https://web-stage.europark.local/myaccount/index`.
 - Ny flik/popup kan kräva riktig browser-gesture; om ett vanligt scriptklick inte öppnar fliken måste agenten använda en metod som räknas som user gesture i browsern.
+- Regression Mode-observation 2026-08-31: efter assisted login räcker det inte att manuellt navigera en ny eller befintlig serviceportalflik till `/myaccount/index`; sådan direktnavigering kan landa på `Account/Login` eller tappa Anna-läget. A är först etablerat när en responsiv `web-stage`-flik faktiskt visar `Anna Walldén` och `Mitt Parkeringskonto`.
+- Regression Mode-observation 2026-08-31: om en `web-stage`-target slutar svara via debuggränssnittet efter misslyckad automation ska den inte användas som A-slutläge. Be användaren trigga assisted login igen och verifiera en ny responsiv target innan efterföljande tester startas.
 
 ## Felutfall
 
@@ -117,6 +119,7 @@ Dokumentera minst:
 - **Utfall för miljökontroll:** stannade i nya stage, ingen legacy-fallback för vald kandidat
 - **Öppnad serviceportal-URL:** `https://web-stage.europark.local/myaccount/index`
 - **Notering:** serviceportal-login lyckades efter att `Users` öppnats och assisted-login triggat ny flik med riktig browser-gesture; tab-targeten landade direkt på `Mitt Parkeringskonto`
+- **Senaste blockerade försök:** 2026-08-31 kunde Anna-kontraktet öppnas i nya stage, men automationen kunde inte etablera en responsiv assisted-login-flik som kvarstod på `web-stage.europark.local/myaccount/index`. Följdtesterna `K` och `G` startades därför inte som giltig regression.
 
 ## Relaterade dokument
 

@@ -91,13 +91,18 @@ Ett developer-facing fel i `test_reports` får skapas först när alla relevanta
 13. Kontrollera att kontraktets startdatum är dagens datum.
 14. Godkänn Apcoas avtalsvillkor.
 15. Klicka på `Skapa kontrakt`.
-16. Vänta tills kontraktet antingen skapas och en bekräftelsesida visas, eller tills ett tydligt felutfall visas.
-17. Om ett fel visas eller om användaren inte kommer vidare:
+16. Vänta länge efter klicket. Kontraktsskapandet kan ta flera minuter och sidan ska inte bedömas som unresponsive eller blockerad bara för att den arbetar långsamt. Vänta minst **5 minuter** om inget tydligt fel visas och ingen uppmätt normalväntetid finns.
+17. Fortsätt först när kontraktet antingen skapas och en bekräftelsesida visas, eller när ett tydligt felutfall visas efter den långa väntan.
+18. Om ett fel visas eller om användaren inte kommer vidare efter väntan:
     - ta skärmdump på felet
     - dokumentera exakt feltext, URL, DS-kandidat, produkt och observerat tillstånd
     - gå tillbaka till källtestet, välj nästa relevanta DS-kandidat och kör om hela flödet till en ny checkout
     - fortsätt tills alla migrerade DS-kandidater har prövats, eller tills ett DS passerar hela flödet
     - skapa inte en utvecklarvänlig felrapport i `test_reports` förrän hela mängden migrerade DS har prövats utan att något DS passerar, eller ett annat systemiskt fel har verifierats enligt rapporteringsstandarden
+19. Om checkoutflödet i stället visar inloggningskrav i serviceportalen (`Logga in med BankID`, `Logga in med APCOA konto` eller `Account/Login`):
+    - klassificera utfallet som sessionsbrott, inte som ett giltigt G-resultat
+    - gå tillbaka till Kundtjänstportalen och kör om `A` för att skapa en ny assisted-login-session
+    - kör därefter om källkedjan (`B` eller `K`) till en ny checkout innan `G` fortsätter
 
 ## Förväntat resultat
 
@@ -129,6 +134,24 @@ Ett developer-facing fel i `test_reports` får skapas först när alla relevanta
 - Jämförelsen mot Kundtjänstportalen ska i första hand göras mot `Kontraktsammanfattning` och övriga kundfält i `EditContract`.
 - Om checkout visar dolda eller automatiskt satta värden ska dessa också dokumenteras när de påverkar resultatet, till exempel dolda identifieringsfält.
 
+## Skapa-kontrakt tidsmätning
+
+För att framtida AI-agenter inte ska feltolka normal lång behandlingstid som ett låst eller unresponsive UI ska `G` ha en uppmätt normalväntetid för steget efter klick på `Skapa kontrakt`.
+
+Mätningen ska göras så här:
+
+1. Kör en giltig källkedja till checkout, normalt `A -> J -> K -> G` för SPS-DS eller `A -> B -> G` för migrerade DS.
+2. Starta tidtagning exakt när `Skapa kontrakt` klickas.
+3. Stoppa tidtagning när sidan visar bekräftelse, tydligt felutfall eller annan slutstatus som testet kan klassificera.
+4. Upprepa tills 10 giltiga mätpunkter finns.
+5. Dokumentera varje mätning med DS, källkedja, checkout-URL, starttid, sluttid, duration, slutstatus och eventuell feltext.
+6. Beräkna medelvärde, median, min, max och normalspann.
+7. Skriv in det uppmätta medelvärdet och normalspannet i detta avsnitt.
+
+Ingen genomsnittlig normalväntetid är ännu fastställd. Ett sådant värde får inte uppskattas; det ska bara anges efter 10 verkliga mätningar. Tills dess gäller att agenten ska vänta minst 5 minuter efter `Skapa kontrakt` om inget explicit fel visas.
+
+Mätpunkter där serviceportalen först visar inloggningskrav är ogiltiga för tidsstatistiken. Endast körningar med aktiv assisted-login-session där `Skapa kontrakt` faktiskt klickas och når en klassificerbar slutstatus (bekräftelse eller tydligt fel) får räknas.
+
 ## Tekniska observationer
 
 - Tidig Learning Mode-observation 2026-08-26: `CustomerModel_IdentificationNumber` var förifyllt med `740130-0608`.
@@ -137,11 +160,16 @@ Ett developer-facing fel i `test_reports` får skapas först när alla relevanta
 - Tidig Learning Mode-observation 2026-08-26: totalsammanfattningen visade `Totalt att betala per månad: SEK NaN/månad inkl. moms`.
 - Tidig Learning Mode-observation 2026-08-26: service-/uppläggningsavgift kunde inte verifieras som tydligt redovisad på sidan.
 - Tidig Learning Mode-observation 2026-08-26: ett försök att skapa kontrakt stannade kvar inom checkoutflödet och visade bland annat feltexten `CustomerModel.PhoneNumber har ett felaktigt värde`.
+- Regression Mode-lärdom 2026-09-01: efter klick på `Skapa kontrakt` kan systemet behöva flera minuter för att skapa kontraktet. Agenten ska inte avbryta, ladda om eller klassificera sidan som unresponsive för tidigt; vänta minst 5 minuter om inget explicit fel visas och ingen uppmätt normalväntetid finns.
+- Regression Mode-observation 2026-09-01: assisted-login i serviceportalen kan löpa ut mellan försök. När `BankID`/`APCOA konto`/`Account/Login` visas är mätningen ogiltig och kedjan måste återstartas från A innan B/K->G kan ge ett giltigt resultat.
+- Learning Mode-förtydligande 2026-09-01: normalväntetid efter `Skapa kontrakt` ska baseras på 10 verkliga mätningar och dokumenteras med medelvärde och normalspann. Ingen sådan mätserie är genomförd ännu.
 - Verifierad Regression Mode-observation 2026-08-27: efter `Skapa kontrakt` ändrades URL:en från `/garage/checkout/{saleId}` till `/garage/checkout`, men det dolda `SaleId`-fältet behöll samma GUID och checkoutdata låg kvar.
 - Verifierad Regression Mode-observation 2026-08-27: samma create-fel kan reproduceras genom att stänga `OK`-dialogen, säkerställa att `TermsAndConditions` fortsatt är ikryssad och klicka `Skapa kontrakt` igen.
 - Superseded Learning Mode-förtydligande 2026-08-28: ett fel på ett enskilt migrerat DS är inte tillräckligt för att skapa regressionsrapport. Den tidigare 10-DS-gränsen är ersatt av kravet på fullständig genomgång av alla migrerade DS.
 - Learning Mode-förtydligande 2026-08-31: 10-DS-gränsen är inte längre tillräcklig för att avgöra om migreringen fungerar någonstans. `G` ska nu pröva samtliga DS med status `Migrated` i `Admin -> Migrate DS` och får avbrytas tidigt endast när ett DS passerar hela `B -> G`-flödet.
+- Regression Mode-observation 2026-08-31: kedjan `A -> J -> K -> G` blockerades före G eftersom A:s serviceportalflik inte kunde verifieras som responsiv och inloggad som `Anna Walldén` efter assisted login. Detta ska inte räknas som G-fel eftersom ingen checkout skapades av K.
 - Regression Mode-observation 2026-08-28: `G` kunde inte starta eftersom `B` inte nådde checkout för 10 prövade migrerade DS-kandidater. Akka-kandidaterna `900627`, `900629`, `900631`, `900636` och `900640` gav inga Google-geocode-träffar från DS-namnet. `900624`, `900648`, `900104` och `47184` gav web-stage garageträffar men details-fetch redirectade till `/account/denied`. `900782` geokodades men gav ingen exakt serviceportalträff. Detta ska behandlas som blockerat/otillräckligt underlag för `G`, inte som verifierat G-fel, eftersom checkout aldrig nåddes.
+- Regression Mode-observation 2026-09-01 (kedja `A -> J -> K -> G`, DS `47184 | Malmen 14, Möllevångsgatan 42 garage A`): efter korrekt ikryssad GDPR-checkbox och telefonnummer normaliserat till enbart siffror (`0730914165`) visade `Skapa kontrakt` felet `Fel format` / `"Object reference not set to an instance of an object."`. Efter klick på `OK` självläkte sidan: den förblev responsiv, `Skapa kontrakt`-knappen fanns kvar och samtliga kundfält behöll sina värden. Produktvalet (`SelectedPackageId`-radioknapparna) försvann dock ur DOM efter felet trots att prissammanfattningen fortsatte visa två produkter (`Oreserverad plats` 424 kr + `Reserverad MC Garageplats` 204 kr, `Totalt att betala per månad: SEK NaN`). Detta klassas som `candidate configuration` för DS `47184`, inte som verifierad kodregression, eftersom DS:et redan tidigare (2026-08-27) visat samma `NaN`-totalsumma och tom `Aviseringsmetod`-dropdown, och eftersom två samtidigt valbara huvudprodukter utan tydlig ömsesidig uteslutning är en DS-specifik uppsättningsfråga. DS `47184` ska inte användas för vidare `Skapa kontrakt`-tidsmätning förrän DS-konfigurationen är åtgärdad eller ett enda produktval kan väljas utan att den andra produktens pris kvarstår i sammanfattningen.
 
 ## Felutfall
 

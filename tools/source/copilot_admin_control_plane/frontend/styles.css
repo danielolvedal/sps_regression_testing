@@ -524,6 +524,43 @@ textarea {
   color: #9ca3af;
   font-weight: 600;
 }
+.copilot-line.prompt-header {
+  margin-top: 0.55rem;
+  color: #b9c1cf;
+}
+.copilot-line.prompt-frame {
+  margin: 0.3rem 0 0.85rem;
+  white-space: normal;
+}
+.copilot-prompt-box {
+  min-height: 2.6rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: #141a22;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+.copilot-prompt-row {
+  min-height: 1.25rem;
+  color: #e5e7eb;
+  white-space: pre-wrap;
+}
+.copilot-prompt-row + .copilot-prompt-row {
+  margin-top: 0.1rem;
+}
+.copilot-prompt-cursor {
+  display: inline-block;
+  width: 1px;
+  height: 1.05rem;
+  vertical-align: text-bottom;
+  background: #f8fafc;
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.16);
+}
+.copilot-prompt-footer {
+  margin-top: 0.35rem;
+  color: #98a2b3;
+  font-size: 0.84rem;
+  white-space: pre-wrap;
+}
 .copilot-line.plain {
   color: #f2f6fb;
   font-weight: 400;
@@ -546,6 +583,51 @@ textarea {
   background: rgba(43, 31, 78, 0.62);
 }
 .ai-console-form label { color: #d8ccff; font-weight: 700; }
+.ai-console-interaction {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(250, 204, 21, 0.38);
+  border-radius: 14px;
+  background: rgba(35, 31, 18, 0.68);
+}
+.ai-console-interaction-question {
+  color: #f8fafc;
+  font-weight: 600;
+}
+.ai-console-interaction-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+.ai-console-interaction-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: rgba(15, 23, 42, 0.82);
+  color: #f8fafc;
+}
+.ai-console-interaction-option.selected {
+  border-color: rgba(96, 165, 250, 0.62);
+  background: rgba(30, 41, 59, 0.94);
+}
+.ai-console-interaction-chip {
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  color: #cbd5e1;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.ai-console-interaction-navhint {
+  width: 100%;
+  color: #aab7c8;
+  font-size: 0.84rem;
+}
 .ai-console-input-row {
   display: grid;
   grid-template-columns: 1fr 130px;

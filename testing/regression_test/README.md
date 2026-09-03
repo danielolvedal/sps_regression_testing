@@ -14,6 +14,7 @@ Fokus:
 
 - `regression-test-catalog.md` - huvudkatalog för namngivna regressionstester, deras sammanfattningar och beroenden, inklusive Mermaid-graf.
 - `regression-test-dependencies.mmd` - fristående Mermaid-kod för regressionsflödenas beroenden; denna fil ska hållas synkad med katalogen och testfilerna.
+- `..\regression_drafts\README.md` - beskriver hur personliga regressionstestutkast lagras separat per användare innan de promotas till denna katalog.
 - `kontrakt-sok-anna-serviceportal-login.md` - manuellt/shared-browser-test som verifierar kontraktssökning på Anna, att kontrakt öppnas i nya stage och att testet avslutas på kundens inloggade serviceportalsida via `Users -> Actions`.
 - `serviceportal-nytt-kontrakt-migrated-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, klickar på `Nytt kontrakt`, väljer ett DS med status `Migrated` via `Admin -> Migrate DS` och verifierar nytt kontrakt-flödet i serviceportalen.
 - `serviceportal-nytt-kontrakt-sps-ds.md` - manuellt/shared-browser-test som tar vid från slutläget i `A`, använder output från `J` som styrande DS-förutsättning, väljer ett DS som finns i SPS (`routing: "sps-stage"`) och verifierar nytt kontrakt-flödet i serviceportalen.
@@ -33,7 +34,7 @@ Fokus:
 
 ## Körlägen
 
-- **Learning Mode** - används när vi utvecklar, provar eller förbättrar testet självt. Då ska agenten uppdatera testdokumentationen men inte skapa rapporter i `test_reports`.
+- **Learning Mode** - används när vi utvecklar, provar eller förbättrar testet självt. Då ska agenten uppdatera testdokumentationen men inte skapa rapporter utanför lokal `tmp`-yta.
 - **Regression Mode** - används när vi kör ett befintligt test som faktisk verifiering. Då gäller normal rapportering enligt `tools\docs\regression-rapportering.md`.
 
 ## Kunskapsåterföring
@@ -58,9 +59,9 @@ Alla namngivna regressionstester ska dessutom hållas synkade mellan:
 
 ## Testrapportering
 
-Själva testrapporterna under `test_reports` ska skrivas på formell engelska.
+Själva testrapporterna under `tmp\regression_local\<owner>\reports` ska skrivas på formell engelska.
 
-En körning ska dokumenteras under `test_reports\YYYYMMDDvN` endast i `Regression Mode`, när utfallet är passerat eller när ett fel är verifierat.
+En körning ska dokumenteras under `tmp\regression_local\<owner>\reports\YYYYMMDDvN` endast i `Regression Mode`, när utfallet är passerat eller när ett fel är verifierat.
 
 Minimikrav:
 
@@ -70,11 +71,11 @@ Minimikrav:
 
 Om ett failed test ännu inte är trippelverifierat ska observationen stanna i testfallet tills verifieringen är klar.
 
-Om körningen sker i `Learning Mode` ska observationen alltid stanna i testfallet och ingen rapport ska skapas i `test_reports`.
+Om körningen sker i `Learning Mode` ska observationen alltid stanna i testfallet och ingen rapport ska skapas utanför lokal `tmp`-yta.
 
 Full standard finns i `tools\docs\regression-rapportering.md`.
 
-Rapporter under `test_reports` är körningsoutput och ska **inte** indexeras i `dokument_index\index.md`.
+Rapporter under `tmp\regression_local\<owner>\reports` är lokal körningsoutput och ska **inte** indexeras i `dokument_index\index.md`.
 
 ## Körbara strukturregressioner
 

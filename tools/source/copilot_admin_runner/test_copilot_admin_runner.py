@@ -49,6 +49,7 @@ class CopilotAdminRunnerTests(unittest.TestCase):
                     "hej",
                     clear_line=True,
                     submit=True,
+                    display_text="Visa hej",
                     trace_id="trace-1",
                     job_id="job-1",
                 )
@@ -61,7 +62,7 @@ class CopilotAdminRunnerTests(unittest.TestCase):
             self.assertEqual(1, len(rows))
             queue_payload = dict(rows[0])
             self.assertEqual("\x15hej", queue_payload["text"])
-            self.assertEqual("hej", queue_payload["display_text"])
+            self.assertEqual("Visa hej", queue_payload["display_text"])
             self.assertEqual(1, queue_payload["clear_line"])
             self.assertEqual("queued", result["status"])
 

@@ -293,11 +293,49 @@ function bindAiConsole() {
     }
   });
   $("#ai-console-send-esc").addEventListener("click", async () => {
-    await sendAiConsoleInput({ text: "\x1b", submit: false, clearLine: false, sourceButtonId: "ai-console-send-esc" });
+    await sendAiConsoleInput({ text: "\x1b", submit: false, clearLine: false, sourceButtonId: "ai-console-send-esc", displayText: "ESC", interactiveResponse: true });
   });
   $("#ai-console-send-tab").addEventListener("click", async () => {
-    await sendAiConsoleInput({ text: "\t", submit: false, clearLine: false, sourceButtonId: "ai-console-send-tab" });
+    await sendAiConsoleInput({ text: "\t", submit: false, clearLine: false, sourceButtonId: "ai-console-send-tab", displayText: "TAB", interactiveResponse: true });
   });
+  $("#ai-console-send-enter").addEventListener("click", async () => {
+    await sendAiConsoleInput({ text: "\r", submit: false, clearLine: false, sourceButtonId: "ai-console-send-enter", displayText: "ENTER", interactiveResponse: true });
+  });
+  $("#ai-console-send-up").addEventListener("click", async () => {
+    await sendAiConsoleInput({ text: "\x1b[A", submit: false, clearLine: false, sourceButtonId: "ai-console-send-up", displayText: "↑", interactiveResponse: true });
+  });
+  $("#ai-console-send-down").addEventListener("click", async () => {
+    await sendAiConsoleInput({ text: "\x1b[B", submit: false, clearLine: false, sourceButtonId: "ai-console-send-down", displayText: "↓", interactiveResponse: true });
+  });
+  $("#ai-console-send-ctrl-d").addEventListener("click", async () => {
+    await sendAiConsoleInput({ text: "\x04", submit: false, clearLine: false, sourceButtonId: "ai-console-send-ctrl-d", displayText: "Ctrl+D", interactiveResponse: true });
+  });
+  $("#ai-console-interaction-options").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-interactive-option-index]");
+    if (!button) return;
+    const prompt = state.aiConsole?.interactive_prompt || null;
+    const optionIndex = Number(button.dataset.interactiveOptionIndex);
+    const sequence = buildInteractiveOptionSequence(prompt, optionIndex);
+    if (!sequence) return;
+    await sendAiConsoleInput({
+      text: sequence,
+      submit: false,
+      clearLine: false,
+      sourceButtonId: `interactive-option-${optionIndex}`,
+      displayText: `Välj ${button.dataset.interactiveOptionLabel || `alternativ ${optionIndex + 1}`}`,
+      interactiveResponse: true,
+    });
+  });
+}
+
+function buildInteractiveOptionSequence(prompt, targetIndex) {
+  const options = normalizeArray(prompt?.options || []);
+  if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= options.length) return null;
+  const selectedIndex = Number.isInteger(prompt?.selected_index) ? prompt.selected_index : options.findIndex((option) => option?.selected);
+  if (selectedIndex < 0) return null;
+  const delta = targetIndex - selectedIndex;
+  const move = delta > 0 ? "\x1b[B".repeat(delta) : "\x1b[A".repeat(Math.abs(delta));
+  return `${move}\r`;
 }
 
 function bindStartupControls() {
@@ -423,17 +461,21 @@ async function sendAiConsoleInput(options = {}) {
   const input = $("#ai-console-input");
   const hasExplicitText = Object.prototype.hasOwnProperty.call(options, "text");
   const text = hasExplicitText ? options.text : input.value;
-  if (!String(text).trim() && !["\x1b", "\t"].includes(text)) return;
+  const interactivePrompt = state.aiConsole?.interactive_prompt || null;
+  const interactiveResponse = options.interactiveResponse === true
+    || (Boolean(state.aiConsole?.user_input_required) && interactivePrompt?.kind === "choice_prompt");
+  if (!String(text).trim() && !["\x1b", "\t", "\r", "\x04", "\x1b[A", "\x1b[B"].includes(text)) return;
   const submit = options.submit !== false;
   const clearLine = options.clearLine !== false;
   const sourceButtonId = options.sourceButtonId || "ai-console-send";
+  const displayText = options.displayText || text;
   state.aiConsoleSending = true;
   renderAiConsole();
   logEvent("button_clicked", { button_id: sourceButtonId, user_action: "send_ai_console_input" });
   try {
     const clientSentAt = new Date().toISOString();
-    state.lastAiConsoleInput = { text, submit, clear_line: clearLine, client_sent_at: clientSentAt };
-    const payload = await apiPost("/api/ai-console/input", { text, submit, clear_line: clearLine, client_sent_at: clientSentAt });
+    state.lastAiConsoleInput = { text: displayText, raw_text: text, submit, clear_line: clearLine, client_sent_at: clientSentAt };
+    const payload = await apiPost("/api/ai-console/input", { text, display_text: displayText, submit, clear_line: clearLine, client_sent_at: clientSentAt, interactive_response: interactiveResponse });
     if (!payload?.accepted) {
       $("#ai-console-hint").textContent = payload?.error || "Input kunde inte skickas.";
       return;
@@ -573,10 +615,18 @@ function renderDashboard() {
   $("#card-job").textContent = latestJob ? `${latestJob.type || "job"} · ${latestJob.status}` : "Inget jobb";
   $("#card-job-tail").textContent = latestJob?.output_tail || latestJob?.command || "Skapa ett jobb från Regressioner eller Mode.";
   $("#card-report").textContent = latestReport?.title || latestReport?.name || "Ingen rapport";
-  $("#card-report-tail").textContent = latestReport?.status || latestReport?.date || "Rapporter läses från backend.";
+  $("#card-report-tail").textContent = latestReport?.status || latestReport?.date || "Lokala rapporter läses från backendens tmp-baserade rapportrot.";
   const failed = state.jobs.find((job) => job.status === "failed");
   $("#card-error").textContent = failed ? failed.title || failed.job_id || failed.id : "Inget verifierat fel";
   $("#card-error-tail").textContent = failed?.output_tail || "Fel visas här när backend rapporterar dem.";
+}
+
+function testScopeLabel(test) {
+  return test.promoted ? "Promoted" : "Draft";
+}
+
+function testOwnerLabel(test) {
+  return test.owner || (test.promoted ? "shared" : "unknown");
 }
 
 function filteredManuals() {
@@ -650,6 +700,8 @@ function renderAiConsole() {
   const status = aiConsoleState.status || "unknown";
   const queue = aiConsoleState.input_queue || {};
   const heartbeat = aiConsoleState.heartbeat || {};
+  const interactivePrompt = aiConsoleState.interactive_prompt || null;
+  const interactionActive = Boolean(aiConsoleState.user_input_required) && interactivePrompt?.kind === "choice_prompt";
   const isOnline = isCopilotOnline(aiConsoleState);
   const rawOutput = isOnline
     ? (state.aiConsoleTranscript || aiConsoleState.transcript_tail || aiConsoleState.last_output_tail || "Connected - waiting for Copilot output.")
@@ -669,11 +721,19 @@ function renderAiConsole() {
   setSemanticBadge($("#ai-console-model"), { label: "Modell", value: modelVerified ? aiConsoleState.model_hint : "ej verifierad", icon: "model" }, modelVerified ? "green" : (isOnline ? "yellow" : "gray"));
   setSemanticBadge($("#ai-console-permissions"), { label: "Permissions", value: permissionsVerified ? aiConsoleState.permissions_hint : "ej verifierad", icon: "permissions" }, permissionsVerified ? "green" : (isOnline ? "yellow" : "gray"));
   setSemanticBadge($("#ai-console-project"), { label: "Projekt", value: projectVerified ? aiConsoleState.project_name : "okänt", icon: "project" }, projectVerified ? "green" : (isOnline ? "yellow" : "gray"));
-  setSemanticBadge($("#ai-console-ready"), { label: "Prompt", value: commandReady ? "redo" : "väntar", icon: "prompt" }, commandReady ? "green" : (isOnline ? "yellow" : "gray"));
-  $("#ai-console-send").textContent = state.aiConsoleSending ? "Skickar..." : "Skicka";
+  setSemanticBadge($("#ai-console-ready"), { label: interactionActive ? "Svar" : "Prompt", value: interactionActive ? "krävs" : (commandReady ? "redo" : "väntar"), icon: "prompt" }, interactionActive ? "yellow" : (commandReady ? "green" : (isOnline ? "yellow" : "gray")));
+  $("#ai-console-send").textContent = state.aiConsoleSending ? "Skickar..." : (interactionActive ? "Skicka svar" : "Skicka");
   $("#ai-console-send").disabled = state.aiConsoleSending;
+  $("#ai-console-send-enter").disabled = state.aiConsoleSending;
+  $("#ai-console-send-up").disabled = state.aiConsoleSending;
+  $("#ai-console-send-down").disabled = state.aiConsoleSending;
   $("#ai-console-send-esc").disabled = state.aiConsoleSending;
   $("#ai-console-send-tab").disabled = state.aiConsoleSending;
+  $("#ai-console-send-ctrl-d").disabled = state.aiConsoleSending;
+  $("#ai-console-input").placeholder = interactionActive
+    ? "Copilot väntar på ett svar. Välj ett alternativ nedan eller skriv fritext efter att du valt Other."
+    : "Skriv din prompt här";
+  renderAiConsoleInteraction(interactivePrompt, interactionActive);
   const startButton = $("#copilot-start-session-button");
   startButton.querySelector(".console-status-action-label").textContent = state.aiConsoleStartInProgress ? "Startar..." : "Starta";
   startButton.disabled = state.aiConsoleStartInProgress;
@@ -705,13 +765,49 @@ function renderAiConsole() {
     logEvent("ai_console_rendered", { status, transcript_cursor: renderSnapshot.transcript_cursor, transcript_length: output.length, rendered_at: renderedAt, streamed_at: renderSnapshot.streamed_at, last_output_chunk_at: renderSnapshot.last_output_chunk_at, command_ready: commandReady });
     if (shouldStickToBottom) outputElement.scrollTop = outputElement.scrollHeight;
   }
-  $("#ai-console-hint").textContent = aiConsoleState.user_input_required
+  $("#ai-console-hint").textContent = interactionActive
+    ? "Copilot väntar på ett val. Använd snabbvalen eller råtangenterna nedan."
+    : aiConsoleState.user_input_required
     ? "Copilot väntar på input."
     : (state.aiConsoleStartInProgress ? "Startar eller återansluter Copilot-session..." : (state.aiConsoleStartError || (state.aiConsoleSending ? "Skickar till Copilot..." : "Redo. Vanliga prompts kompletteras automatiskt med standardinstruktion.")));
   const signature = `${status}|${Boolean(aiConsoleState.user_input_required)}|${output.length}|${queue.pending || 0}|${heartbeat.next_cursor ?? ""}`;
   if (state.lastAiConsoleSignature !== signature) {
     state.lastAiConsoleSignature = signature;
     logEvent("ai_console_refreshed", { status, user_input_required: Boolean(aiConsoleState.user_input_required), transcript_length: output.length, transcript_cursor: heartbeat.next_cursor ?? state.aiConsoleCursor });
+  }
+}
+
+function renderAiConsoleInteraction(prompt, active) {
+  const panel = $("#ai-console-interaction");
+  const question = $("#ai-console-interaction-question");
+  const options = $("#ai-console-interaction-options");
+  panel.hidden = !active;
+  if (!active || !prompt) {
+    question.textContent = "";
+    options.innerHTML = "";
+    return;
+  }
+  const promptLines = normalizeArray(prompt.prompt_lines || []).filter(Boolean);
+  question.innerHTML = promptLines.map((line) => `<div>${escapeHtml(line)}</div>`).join("")
+    || `<div>${escapeHtml(prompt.question || "Copilot väntar på ett val.")}</div>`;
+  options.innerHTML = normalizeArray(prompt.options || []).map((option, index) => {
+    const selected = Boolean(option?.selected);
+    const label = String(option?.label || `Alternativ ${index + 1}`);
+    return `
+      <button
+        type="button"
+        class="ai-console-interaction-option ${selected ? "selected" : ""}"
+        data-interactive-option-index="${index}"
+        data-interactive-option-label="${escapeAttr(label)}"
+      >
+        <span>${escapeHtml(label)}</span>
+        ${selected ? '<span class="ai-console-interaction-chip">valt</span>' : ""}
+        ${option?.requires_text ? '<span class="ai-console-interaction-chip">fritext</span>' : ""}
+      </button>
+    `;
+  }).join("");
+  if (prompt.navigation_hint) {
+    options.insertAdjacentHTML("beforeend", `<div class="ai-console-interaction-navhint">${escapeHtml(prompt.navigation_hint)}</div>`);
   }
 }
 
@@ -757,18 +853,23 @@ function renderTests() {
   }
   select.innerHTML = state.tests.map((test) => {
     const id = test.test_id || test.id || test.catalog_key;
-    return `<option value="${escapeAttr(id)}">${escapeHtml(test.catalog_key || id)} · ${escapeHtml(id)} · ${escapeHtml(test.title || test.summary || "")}</option>`;
+    const prefix = test.catalog_key ? `${test.catalog_key} · ` : "";
+    return `<option value="${escapeAttr(id)}">[${escapeHtml(testScopeLabel(test))}] ${escapeHtml(prefix)}${escapeHtml(id)} · ${escapeHtml(test.title || test.summary || "")}</option>`;
   }).join("");
   $("#regression-list").innerHTML = state.tests.map((test) => {
     const id = test.test_id || test.id || test.catalog_key;
+    const catalogDisplay = test.catalog_key ? `${test.catalog_key} · ` : "";
+    const maintainers = normalizeArray(test.maintainers || []).join(", ");
     return `
     <article class="item" data-testid="regression-item" data-test-id="${escapeAttr(id)}">
-      <h3>${escapeHtml(test.catalog_key || "")} · ${escapeHtml(id || "Regressionstest")}</h3>
+      <h3>${escapeHtml(catalogDisplay)}${escapeHtml(id || "Regressionstest")}</h3>
       <p>${escapeHtml(test.summary || "Ingen sammanfattning.")}</p>
+      <div class="item-meta">Scope: ${escapeHtml(testScopeLabel(test))} · Owner: ${escapeHtml(testOwnerLabel(test))}</div>
+      <div class="item-meta">Maintainers: ${escapeHtml(maintainers || "inga angivna")}</div>
       <div class="item-meta">Beroenden: ${escapeHtml((test.dependencies || []).join(", ") || "inga")}</div>
       <div class="item-meta">Fil: ${escapeHtml(test.file_path || test.file || "saknas")}</div>
       <div class="item-actions">
-        <button data-testid="run-regression-item-button" data-run-test-id="${escapeAttr(id)}">Kör detta test</button>
+        <button data-testid="run-regression-item-button" data-run-test-id="${escapeAttr(id)}">Kör detta ${test.promoted ? "test" : "draft-test"}</button>
       </div>
     </article>
   `;
@@ -827,13 +928,19 @@ function renderMermaidGraph() {
 function renderReports() {
   const filter = $("#report-filter").value.trim().toLowerCase();
   const reports = state.reports.filter((report) => `${report.title || ""} ${report.name || ""} ${report.path || ""} ${report.status || ""}`.toLowerCase().includes(filter));
-  $("#report-list").innerHTML = reports.map((report) => `
+  $("#report-list").innerHTML = reports.length ? reports.map((report) => `
     <article class="item" data-testid="report-item">
       <h3>${escapeHtml(report.title || report.name || report.report_id || report.id)}</h3>
       <div class="item-meta">${escapeHtml(report.run_id || report.date || "")} ${escapeHtml(report.status || report.type || "")}</div>
+      <div class="item-meta">${escapeHtml(report.path || "")}</div>
       <div class="item-actions"><button data-testid="open-report-button" data-report-id="${escapeAttr(report.report_id || report.id)}">Öppna rapport</button></div>
     </article>
-  `).join("");
+  `).join("") : `
+    <article class="item warning" data-testid="reports-empty-state">
+      <h3>Inga lokala rapporter hittades</h3>
+      <p>Regression Mode-rapporter sparas nu lokalt under backendens tmp-baserade rapportrot för aktuell användare.</p>
+    </article>
+  `;
   $$("[data-report-id]").forEach((button) => {
     button.addEventListener("click", () => openReport(button.dataset.reportId));
   });
@@ -1080,11 +1187,17 @@ function copilotTranscriptToHtml(text) {
   const html = [];
   for (let index = 0; index < lines.length; index += 1) {
     const rawLine = lines[index];
+    const promptFrame = extractCopilotPromptFrame(lines, index);
+    if (promptFrame) {
+      html.push(promptFrame.html);
+      index = promptFrame.nextIndex;
+      continue;
+    }
     const analysisLine = normalizeCopilotTranscriptLine(rawLine);
     const trimmed = analysisLine.trim();
     const special = classifyCopilotLine(trimmed);
     const classes = ["copilot-line"];
-    if (!rawLine.length) {
+    if (!analysisLine.length) {
       classes.push("spacer");
       html.push(`<div class="${classes.join(" ")}">&nbsp;</div>`);
       continue;
@@ -1107,18 +1220,85 @@ function copilotTranscriptToHtml(text) {
       classes.push("option");
     } else if (special === "navigation-hint") {
       classes.push("navigation-hint");
+    } else if (special === "prompt-header") {
+      classes.push("prompt-header");
     } else if (trimmed.startsWith("Disconnected -")) {
       classes.push("disconnected");
     } else {
       classes.push("plain");
     }
-    html.push(`<div class="${classes.join(" ")}">${escapeHtml(rawLine)}</div>`);
+    html.push(`<div class="${classes.join(" ")}">${escapeHtml(analysisLine)}</div>`);
   }
   return html.join("");
 }
 
 function normalizeCopilotTranscriptLine(line) {
-  return String(line || "").replace(/\u00A0/g, " ").trimEnd();
+  let text = String(line || "").replace(/\u00A0/g, " ").trimEnd();
+  if (/^[│┃║|]\s+.*\s+[│┃║|]\s*$/.test(text)) {
+    text = text.replace(/^[│┃║|]\s*/, "").replace(/\s*[│┃║|]\s*$/, "");
+  } else if (/^\s+.*\s+[│┃║|]\s*$/.test(text)) {
+    text = text.replace(/\s*[│┃║|]\s*$/, "");
+  }
+  return text.trimEnd();
+}
+
+function extractCopilotPromptFrame(lines, startIndex) {
+  const topLine = String(lines[startIndex] || "");
+  if (!isCopilotPromptFrameTop(topLine)) return null;
+  let endIndex = -1;
+  const bodyLines = [];
+  for (let index = startIndex + 1; index < Math.min(lines.length, startIndex + 12); index += 1) {
+    const line = String(lines[index] || "");
+    if (isCopilotPromptFrameBottom(line)) {
+      endIndex = index;
+      break;
+    }
+    bodyLines.push(extractCopilotPromptFrameBody(line));
+  }
+  if (endIndex < 0 || !bodyLines.length) return null;
+  let nextIndex = endIndex;
+  let footerHtml = "";
+  const footerLine = String(lines[endIndex + 1] || "");
+  const normalizedFooter = normalizeCopilotTranscriptLine(footerLine);
+  if (isCopilotPromptFooter(normalizedFooter)) {
+    footerHtml = `<div class="copilot-prompt-footer">${escapeHtml(normalizedFooter)}</div>`;
+    nextIndex = endIndex + 1;
+  }
+  const renderedBody = bodyLines.map((body, index) => {
+    const cursor = index === 0 ? '<span class="copilot-prompt-cursor" aria-hidden="true"></span>' : "";
+    const content = `${cursor}${body.text || "&nbsp;"}`;
+    return `<div class="copilot-prompt-row ${body.text ? "has-text" : "is-empty"}">${content}</div>`;
+  }).join("");
+  return {
+    html: `
+      <div class="copilot-line prompt-frame">
+        <div class="copilot-prompt-box">${renderedBody}</div>
+        ${footerHtml}
+      </div>
+    `,
+    nextIndex,
+  };
+}
+
+function isCopilotPromptFrameTop(line) {
+  const text = String(line || "").trim();
+  return /^[╻╷╽]?[▄▁▂▃]{10,}$/u.test(text) || /^[╭┌].+[╮┐]$/u.test(text);
+}
+
+function isCopilotPromptFrameBottom(line) {
+  const text = String(line || "").trim();
+  return /^[╹╵╿╺╸╹╽]?[▀▔▆▇]{10,}$/u.test(text) || /^[╰└].+[╯┘]$/u.test(text);
+}
+
+function extractCopilotPromptFrameBody(line) {
+  const text = String(line || "").replace(/\u00A0/g, " ").trimEnd();
+  const match = text.match(/^\s*[│┃║|]\s*(.*?)\s*(?:[│┃║|]\s*)?$/u);
+  return { text: escapeHtml((match?.[1] || "").trimEnd()) };
+}
+
+function isCopilotPromptFooter(line) {
+  const text = String(line || "");
+  return /\/ commands|tab next tab|\? help|open sidebar|Auto →|downloaded/i.test(text);
 }
 
 function classifyCopilotLine(line) {
@@ -1126,11 +1306,19 @@ function classifyCopilotLine(line) {
   if (/^\$\s+Shell\b/.test(line)) return "shell";
   if (/^Run safe host-runner smoke tests\b/.test(line)) return "command-title";
   if (/^\$ErrorActionPreference=/.test(line) || /^\$targets\s*=/.test(line) || /^host-runner-/.test(line)) return "command-code";
+  if (/^[A-Z]:\\.+\]\s+Session:\s+/i.test(line)) return "prompt-header";
   if (/^Do you want to run this command\?/.test(line)) return "question";
-  if (/^(❯|›|>)\s*\d+\.\s+/.test(line)) return "selected-option";
-  if (/^\d+\.\s+/.test(line)) return "option";
-  if (/^↑\/↓\s+to (navigate|select)/.test(line) || /enter to (select|confirm)/.test(line)) return "navigation-hint";
+  if (/^(❯|›|>)\s*(?:\d+\.\s+)?/.test(line) && isCopilotPromptOptionText(line.replace(/^(❯|›|>)\s*/, ""))) return "selected-option";
+  if ((/^\d+\.\s+/.test(line) || isCopilotPromptOptionText(line)) && !line.endsWith("?")) return "option";
+  if (/^↑\/↓\s+to (navigate|select)/.test(line) || /enter(?: to)? (select|confirm|accept)/i.test(line) || /tab(?: to)? next/i.test(line) || /ctrl\+d/i.test(line)) return "navigation-hint";
   return null;
+}
+
+function isCopilotPromptOptionText(line) {
+  const candidate = String(line || "").replace(/^\d+\.\s*/, "").trim();
+  if (!candidate) return false;
+  if (/^(yes|no|other\b.*|approve|deny|cancel|continue)$/i.test(candidate)) return true;
+  return /^[A-Z][A-Z0-9 '&()/._-]{0,48}$/.test(candidate) && candidate.split(/\s+/).length <= 6;
 }
 
 function isContinuationCommandLine(line) {

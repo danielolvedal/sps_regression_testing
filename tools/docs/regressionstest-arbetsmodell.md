@@ -56,7 +56,7 @@ I `Learning Mode` ska agenten:
 2. tillåtas iterera, backa och prova alternativa kandidater
 3. uppdatera testfallet med observationer, exekveringsgenvägar, beslutspunkter och kända risker
 4. uppdatera `regression-test-catalog.md` om testets syfte, beroenden eller identitet ändras
-5. **inte** skapa rapporter i `test_reports`
+5. **inte** skapa rapporter utanför den lokala `tmp`-ytan
 
 ## Regression Mode
 
@@ -66,7 +66,7 @@ I `Regression Mode` ska agenten:
 
 1. följa det dokumenterade testfallet
 2. uppdatera testfallet med återanvändbara lärdomar
-3. skapa eller uppdatera rapporter i `test_reports` enligt rapporteringsstandarden, men bara när rapportering är tillåten
+3. skapa eller uppdatera rapporter i `tmp\regression_local\<owner>\reports` enligt rapporteringsstandarden, men bara när rapportering är tillåten
 
 ## Osäkerhetshantering
 
@@ -88,7 +88,7 @@ Om det är tydligt att användaren vill arbeta med testutveckling snarare än sk
 - testbeskrivningar finns i `testing\regression_test`
 - testidentiteter, sammanfattningar och beroenden finns i `testing\regression_test\regression-test-catalog.md`
 - renderbar Mermaid-kod för testberoenden finns i `testing\regression_test\regression-test-dependencies.mmd`
-- testrapporter från utförda körningar finns i `test_reports`
+- testrapporter från utförda körningar finns lokalt i `tmp\regression_local\<owner>\reports`
 - styrande regler finns i `AGENTS.md`
 
 ## Körsätt per testtyp
@@ -142,7 +142,7 @@ För att ett nytt test ska vara körbart från Copilot-admin frontend ska följa
 10. `dokument_index\index.md` ska referera till testfilen eftersom den är ett beständigt dokument.
 11. `testing\regression_test\README.md` bör lista testet så människor hittar det utanför frontend.
 
-Backend normaliserar katalograden till ett testobjekt med bland annat `catalog_key`, `test_id`, `summary`, `file_path`, `test_type`, `dependency_keys`, `dependency_test_ids` och `dependency_mode`. Frontend använder `test_id` när användaren klickar `Kör valt test`, men visar även `catalog_key` och `file_path` så att körbarheten går att felsöka.
+Backend normaliserar katalograden till ett testobjekt med bland annat `catalog_key`, `test_id`, `summary`, `file_path`, `test_type`, `dependency_keys`, `dependency_test_ids`, `dependency_mode`, `owner`, `maintainers`, `scope` och `promoted`. Frontend använder `test_id` när användaren klickar `Kör valt test`, men visar även `catalog_key`, `file_path`, ägare och scope så att körbarheten går att felsöka.
 
 Efter att ett test har lagts till eller ändrats ska agenten köra:
 
@@ -181,7 +181,7 @@ Därefter ska agenten köra:
 
 ## Before Creating a Report
 
-In `Regression Mode`, for a failed UI regression, the agent must verify the defect through at least three reproductions before creating a developer-facing report in `test_reports`.
+In `Regression Mode`, for a failed UI regression, the agent must verify the defect through at least three reproductions before creating a developer-facing report in `tmp\regression_local\<owner>\reports`.
 
 If the defect is not yet triple-verified, the agent must:
 
@@ -198,4 +198,4 @@ När användaren säger `kör regressionstest` ska agenten inte utgå från att 
 - körbara skript för stabila strukturkontroller
 - dokumenterade AI-/browserstyrda testinstruktioner för verkliga användarflöden
 
-Efter körningen ska agenten också skapa eller uppdatera en rapport i `test_reports\YYYYMMDDvN` enligt rapporteringsstandarden, men endast i `Regression Mode` och endast för passerade eller verifierade fallerade tester.
+Efter körningen ska agenten också skapa eller uppdatera en rapport i `tmp\regression_local\<owner>\reports\YYYYMMDDvN` enligt rapporteringsstandarden, men endast i `Regression Mode` och endast för passerade eller verifierade fallerade tester.

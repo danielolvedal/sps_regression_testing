@@ -18,8 +18,8 @@ Alla beständiga filer ska placeras i en namngiven katalog under projektroten. T
 | `tools\docs\decissions` | Beslut som rör verktyg, skript, runtime och arbetssätt. |
 | `tools\source\[tool_name]` | Källkod för specifika hjälpverktyg som utvecklas för SPS-arbetet. |
 | `testing\funktional_test` | Beskrivningar, fall och metodik för funktionella tester. |
-| `testing\regression_test` | Beskrivningar, fall och metodik för regressionstester. |
-| `test_reports` | Formal-English regression reports for Regression Mode runs and verified defects. |
+| `testing\regression_test` | Promotade och körbara delade regressionstester. |
+| `testing\regression_drafts` | Personliga eller opromotade regressionstestutkast per användare innan de flyttas till den delade katalogen. |
 | `manuals\csc_user_manuals` | Färdiga manualer för kundtjänst/CSC. |
 | `manuals\user_manuals` | Färdiga manualer för slutanvändare i serviceportalen. |
 | `manuals\client_manuals` | Färdiga manualer för klienter, företag och SaaS-kunder. |
@@ -38,16 +38,16 @@ Alla beständiga filer ska placeras i en namngiven katalog under projektroten. T
 5. Färdiga användardokument ska till `manuals`.
 6. Verktygsdokumentation ska till `tools\docs`; verktygsroadmaps ska till `tools\docs\road-map` och verktygsbeslut ska till `tools\docs\decissions`.
 7. `AGENTS.md` ska alltid peka vidare till `dokument_index\index.md`.
-8. Alla nya beständiga dokument/datafiler ska listas i `dokument_index\index.md`, **utom** innehåll under `test_reports`.
+8. Alla nya beständiga dokument/datafiler ska listas i `dokument_index\index.md`, **utom** lokala körartefakter under `tmp`.
 9. Dokumentindex ska verifieras med regressionstest.
 10. Dokumentindex-testet är obligatoriskt och ska alltid köras när beständiga dokument/datafiler skapas, ändras, flyttas eller tas bort.
 11. När innehållet i `raw_data` ändras ska `syntetisk_data\common\kallinventering.md` uppdateras och verifieras med separat regressionstest.
 12. En `raw_data`-ändring är inte klar förrän relevant påverkan på `syntetisk_data` har analyserats och spårats i `syntetisk_data\common\kallinventering.md`.
-13. Varje rapporterad regressionskörning i `Regression Mode` ska dokumenteras under `test_reports\YYYYMMDDvN`.
+13. Varje rapporterad regressionskörning i `Regression Mode` ska dokumenteras under `tmp\regression_local\<owner>\reports\YYYYMMDDvN`.
 14. Varje verifierat regressionsfel ska få en egen katalog `RegressionErrorNN` med utvecklarvänlig felrapport på engelska.
-15. Ett `failed` test får inte rapporteras under `test_reports` förrän felet verifierats minst tre gånger.
-16. Innehåll under `test_reports` ska inte läggas in i `dokument_index\index.md`.
-17. Körningar i `Learning Mode` får inte skapa rapportpaket i `test_reports`; lärdomar ska i stället skrivas tillbaka till testdokumentationen.
+15. Ett `failed` test får inte rapporteras under `tmp\regression_local\<owner>\reports` förrän felet verifierats minst tre gånger.
+16. Lokala körartefakter under `tmp` ska inte läggas in i `dokument_index\index.md`.
+17. Körningar i `Learning Mode` får inte skapa rapportpaket utanför `tmp`; lärdomar ska i stället skrivas tillbaka till testdokumentationen.
 
 ## Förväntad arbetsordning
 
@@ -61,7 +61,7 @@ Alla beständiga filer ska placeras i en namngiven katalog under projektroten. T
 8. Kör alltid dokumentindex-testet i `runtime\test-document-index.ps1`
 9. Om `raw_data` har ändrats, uppdatera `syntetisk_data\common\kallinventering.md` och kör `runtime\test-kallinventering-coverage.ps1`
 10. Uppdatera därefter alla berörda syntetiska dokument innan arbetet anses klart
-11. Om regressionstest körs, uppdatera först testfallet med lärdomar och skriv endast rapportpaket till `test_reports` i `Regression Mode` för passerade eller verifierade fallerade tester
+11. Om regressionstest körs, uppdatera först testfallet med lärdomar och skriv endast rapportpaket till `tmp\regression_local\<owner>\reports` i `Regression Mode` för passerade eller verifierade fallerade tester
 
 ## Runtime-understruktur
 
