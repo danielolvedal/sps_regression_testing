@@ -15,3 +15,8 @@ node_modules/
 
 Thumbs.db
 Desktop.ini
+
+# Local tool infrastructure logs should not be committed
+tool_error_logs/
+!tool_error_logs/.gitignore
+

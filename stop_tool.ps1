@@ -142,6 +142,10 @@ function Invoke-RunnerStop {
         $arguments.Port = $Port
     }
     $previousStateDir = $env:COPILOT_ADMIN_RUNNER_STATE_DIR
+    # Ensure tool_error_logs exists and inherit if provided
+    $logsDir = if ($env:TOOL_ERROR_LOG_DIR) { $env:TOOL_ERROR_LOG_DIR } else { Join-Path $repoRoot 'tool_error_logs' }
+    if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+
     try {
         $env:COPILOT_ADMIN_RUNNER_STATE_DIR = $StateDir
         $raw = & $runnerScript @arguments | Out-String
@@ -152,6 +156,16 @@ function Invoke-RunnerStop {
             $env:COPILOT_ADMIN_RUNNER_STATE_DIR = $previousStateDir
         }
     }
+
+    # Persist raw runner script output to tool_error_logs for debugging
+    try {
+        $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+        $runnerLog = Join-Path $logsDir ("runner-$Action-$timestamp.log")
+        $raw | Out-File -FilePath $runnerLog -Encoding UTF8
+    } catch {
+        Write-Verbose "Failed to write runner raw output to log: $_"
+    }
+
     if (-not $raw.Trim()) {
         throw "No JSON was returned from $runnerScript for action $Action."
     }

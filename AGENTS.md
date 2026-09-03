@@ -21,6 +21,12 @@ Detta repository används för att samla, strukturera och producera dokumentatio
 - Lägg färdiga manualer i relevant katalog under `manuals`.
 - Lägg temporära filer **endast** i repositoryrotens `tmp`. Skapa aldrig `tmp`-kataloger under `tools` eller andra underkataloger.
 
+Agentkontrakt för loggning:
+
+- `tool_error_logs` är reserverad för fasta verktyg/infra-loggar (install, start, stop, reinstall, Playwright-/node-starts etc.). Agenter får endast skriva verktygsinfrastruktur-loggar hit.
+- Agenter får inte använda `tool_error_logs` för test-, regressions- eller temporära loggar. All testrelaterad loggning ska skrivas under `tmp`.
+- Sök och använd alltid `dokument_index\index.md` och `tools\docs\katalogstruktur.md` för aktuella regler innan du skriver loggar.
+
 ## Standardstart för UI-arbete
 
 När uppgiften kräver inloggning, UI-observation eller gemensam browserstyrning ska sessionen normalt starta med:

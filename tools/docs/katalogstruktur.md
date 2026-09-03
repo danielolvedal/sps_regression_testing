@@ -33,6 +33,8 @@ Alla beständiga filer ska placeras i en namngiven katalog under projektroten. T
 
 1. Inga nya toppnivåkataloger får införas utan uttryckligt beslut.
 2. Inga temporära filer får läggas utanför repositoryrotens `tmp`; `tmp`-kataloger under `tools` eller andra underkataloger är förbjudna.
+
+2.a. Verktygsinfrastruktur-loggar (install/start/stop/reinstall, Playwright- eller node-start, och andra fasta drift-/infrastruktur-skript) ska skrivas till `tool_error_logs` i repositoryroten. Endast loggar som tillhör verktygets infrastruktur får sparas där — test- och regressionsloggar ska fortsätta sparas under `tmp` och inte i `tool_error_logs`. "}
 3. Nya råuttag från systemet ska i första hand till `raw_data`.
 4. Strukturerad sammanställning för AI eller dokumentproduktion ska till `syntetisk_data`.
 5. Färdiga användardokument ska till `manuals`.

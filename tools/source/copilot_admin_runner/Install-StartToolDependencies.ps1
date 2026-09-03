@@ -16,6 +16,10 @@ if (Test-Path $detectedIndex) {
     $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
 }
 
+# Ensure tool_error_logs directory exists at repo root for all tool infrastructure logs
+$logsDir = Join-Path $repoRoot 'tool_error_logs'
+if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+
 # Set COPILOT_ADMIN_TEST_OWNER to current Windows user if not already set
 if (-not $env:COPILOT_ADMIN_TEST_OWNER) {
     $env:COPILOT_ADMIN_TEST_OWNER = $env:USERNAME
@@ -24,7 +28,10 @@ if (-not $env:COPILOT_ADMIN_TEST_OWNER) {
 # Persist minimal installer config for reproducibility
 try {
     $installerConfig = @{ repo_root = $repoRoot.Path; COPILOT_ADMIN_TEST_OWNER = $env:COPILOT_ADMIN_TEST_OWNER }
-    $installerConfigPath = Join-Path $repoRoot 'copilot_installer_config.json'
+    # Ensure tool_error_logs directory exists and write installer config there
+    $logsDir = Join-Path $repoRoot 'tool_error_logs'
+    if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+    $installerConfigPath = Join-Path $logsDir 'copilot_installer_config.json'
     $installerConfig | ConvertTo-Json -Depth 3 | Out-File -FilePath $installerConfigPath -Encoding UTF8
 } catch {
     Write-Verbose "Failed to persist installer config: $_"
@@ -56,11 +63,30 @@ function Invoke-ExternalCommand {
         [string[]]$Arguments = @()
     )
 
-    $output = & $FilePath @Arguments 2>&1 | Out-String
-    $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+    # Ensure tool_error_logs dir exists
+    if (-not $logsDir) { $logsDir = Join-Path $repoRoot 'tool_error_logs' }
+    if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+
+    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+    $cmdName = Split-Path $FilePath -Leaf
+    $logFile = Join-Path $logsDir ("external-$timestamp-$cmdName.log")
+    $startInfo = "$cmdName $([string]::Join(' ', $Arguments))"
+
+    try {
+        $output = & $FilePath @Arguments 2>&1 | Out-String
+        $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+    } catch {
+        $output = $_ | Out-String
+        $exitCode = 1
+    }
+
+    try { $output | Out-File -FilePath $logFile -Encoding UTF8 } catch { Write-Verbose "Failed to write external command log: $_" }
+
     [pscustomobject]@{
         ExitCode = $exitCode
         Output = $output.Trim()
+        LogFile = $logFile
+        Command = $startInfo
     }
 }
 
@@ -204,15 +230,36 @@ function Get-PreflightState {
     }
 
     if ($nodeReady) {
-        $nodeSqliteProbe = Invoke-ExternalCommand -FilePath $nodePath -Arguments @('-e', 'import("node:sqlite").then(() => { console.log("node:sqlite ok"); }).catch((error) => { console.error(error.message); process.exit(1); });')
-        if ($nodeSqliteProbe.ExitCode -eq 0) {
-            $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'ready' -Details 'Built-in node:sqlite module is available.'))
+            # First try the built-in node:sqlite
+            $nodeSqliteProbe = Invoke-ExternalCommand -FilePath $nodePath -Arguments @('-e', 'import("node:sqlite").then(() => { console.log("node:sqlite ok"); }).catch((error) => { console.error(error.message); process.exit(1); });')
+            if ($nodeSqliteProbe.ExitCode -eq 0) {
+                $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'ready' -Details 'Built-in node:sqlite module is available.'))
+            } else {
+                # Fallback: check for common npm-backed sqlite packages in repo-local node_modules locations
+                $foundPkg = $null
+                $pkgPath = $null
+                $candidateDirs = @(
+                    Join-Path $repoRoot 'node_modules',
+                    Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\e2e\node_modules',
+                    Join-Path $repoRoot 'tools\source\copilot_admin_runner\node_pty_poc\node_modules'
+                )
+                foreach ($dir in $candidateDirs) {
+                    if ($dir -and (Test-Path (Join-Path $dir 'sqlite3'))) { $foundPkg = 'sqlite3'; $pkgPath = Join-Path $dir 'sqlite3'; break }
+                    if ($dir -and (Test-Path (Join-Path $dir 'better-sqlite3'))) { $foundPkg = 'better-sqlite3'; $pkgPath = Join-Path $dir 'better-sqlite3'; break }
+                }
+
+                if ($foundPkg) {
+                    $details = "Using npm package $foundPkg at $pkgPath as sqlite backend (fallback)."
+                    $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'ready' -Details $details))
+                } else {
+                    $missingDetails = "Installed Node.js could not load the built-in node:sqlite module required by the PTY transport. Probe output: $($nodeSqliteProbe.Output)"
+                    $installCmds = @('winget upgrade --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements', 'If node:sqlite is still unavailable, install a newer Node.js release that includes the built-in node:sqlite module, or install a local sqlite npm package (npm install sqlite3 or npm install better-sqlite3 in the relevant package folder).')
+                    $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'missing' -Details $missingDetails -InstallCommands $installCmds -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
+                }
+            }
         } else {
-            $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'missing' -Details 'Installed Node.js could not load the built-in node:sqlite module required by the PTY transport.' -InstallCommands @('winget upgrade --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements', 'If node:sqlite is still unavailable, install a newer Node.js release that includes the built-in node:sqlite module.') -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
+            $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'missing' -Details 'Node.js is unavailable, so node:sqlite support could not be verified.' -InstallCommands @('winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
         }
-    } else {
-        $checks.Add((New-DependencyCheck -Id 'node-sqlite' -Name 'Node.js node:sqlite runtime' -Category 'system' -Required $true -Status 'missing' -Details 'Node.js is unavailable, so node:sqlite support could not be verified.' -InstallCommands @('winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
-    }
 
     # Playwright / e2e checks: verify e2e package.json and node_modules/playwright-core
     $e2eDir = Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\e2e'
@@ -295,8 +342,11 @@ function Save-PreflightReport {
     )
 
     try {
-        $jsonPath = Join-Path $PathRoot 'install_report.json'
-        $mdPath = Join-Path $PathRoot 'install_report.md'
+        # Ensure tool_error_logs directory exists under the provided path root
+        $logsDir = Join-Path $PathRoot 'tool_error_logs'
+        if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+        $jsonPath = Join-Path $logsDir 'install_report.json'
+        $mdPath = Join-Path $logsDir 'install_report.md'
         $State | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonPath -Encoding UTF8
 
         $lines = @()

@@ -48,6 +48,11 @@ function Get-OptionalProperty {
     return $property.Value
 }
 
+# Ensure tool_error_logs exists and export for child scripts to inherit
+$logsDir = Join-Path $repoRoot 'tool_error_logs'
+if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+$env:TOOL_ERROR_LOG_DIR = $logsDir
+
 $stopArguments = @{
     HostName = $HostName
     BackendPort = $BackendPort
@@ -73,10 +78,12 @@ if ($DryRun) {
         DryRun = $true
     }
     & $startScript @startDryRunArguments
-    exit 0
-}
+        # Remove inherited env var in dry-run path
+        Remove-Item Env:\TOOL_ERROR_LOG_DIR -ErrorAction SilentlyContinue
+        exit 0
+    }
 
-$stopState = Read-JsonFile -Path $statePath
+    $stopState = Read-JsonFile -Path $statePath
 $stopStatus = [string](Get-OptionalProperty -Object $stopState -Name 'status')
 if ($stopStatus -ne 'stopped') {
     throw "restart_tool.ps1 aborted because stop_tool.ps1 did not finish cleanly. Reported status: $stopStatus. See $statePath for details."
@@ -97,3 +104,5 @@ $startArguments = @{
 
 Write-Host 'Regression tool suite starting - please wait'
 & $startScript @startArguments
+# Clean up TOOL_ERROR_LOG_DIR from environment after restart sequence
+Remove-Item Env:\TOOL_ERROR_LOG_DIR -ErrorAction SilentlyContinue

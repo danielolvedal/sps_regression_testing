@@ -23,10 +23,14 @@ $runId = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
 $stateDir = Join-Path $repoRoot 'tmp\copilot_admin_control_plane\start_tool'
 $null = New-Item -ItemType Directory -Path $stateDir -Force
 $statePath = Join-Path $stateDir 'latest.json'
-$hostRunnerOut = Join-Path $stateDir "host-runner-$runId.out.log"
-$hostRunnerErr = Join-Path $stateDir "host-runner-$runId.err.log"
-$backendOut = Join-Path $stateDir "backend-$runId.out.log"
-$backendErr = Join-Path $stateDir "backend-$runId.err.log"
+
+# Tool infrastructure logs (stdout/stderr from detached processes) go to tool_error_logs
+$logsDir = if ($env:TOOL_ERROR_LOG_DIR) { $env:TOOL_ERROR_LOG_DIR } else { Join-Path $repoRoot 'tool_error_logs' }
+if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
+$hostRunnerOut = Join-Path $logsDir "host-runner-$runId.out.log"
+$hostRunnerErr = Join-Path $logsDir "host-runner-$runId.err.log"
+$backendOut = Join-Path $logsDir "backend-$runId.out.log"
+$backendErr = Join-Path $logsDir "backend-$runId.err.log"
 
 function Test-JsonEndpoint {
     param([Parameter(Mandatory = $true)][string]$Uri)
