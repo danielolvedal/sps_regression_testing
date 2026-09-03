@@ -1,5 +1,14 @@
 tmp/*
 !tmp/.gitignore
+test_reports/
+
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+playwright-report/
+test-results/
 
 node_modules/
 **/node_modules/

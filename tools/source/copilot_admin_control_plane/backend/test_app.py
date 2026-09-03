@@ -40,6 +40,8 @@ class BackendSmokeTests(unittest.TestCase):
         cls.previous_node_pty_state_dir = app.NODE_PTY_STATE_DIR
         cls.previous_node_pty_state_path = app.NODE_PTY_STATE_PATH
         cls.previous_node_pty_window_state_path = app.NODE_PTY_WINDOW_STATE_PATH
+        cls.previous_reports_dir = app.REPORTS_DIR
+        cls.previous_draft_tests_dir = app.DRAFT_TESTS_DIR
         app.STATE_DIR = cls.test_state_dir
         app.JOBS_PATH = cls.test_state_dir / "jobs.json"
         app.HOST_STATE_PATH = cls.test_state_dir / "injected-host-state.json"
@@ -49,6 +51,48 @@ class BackendSmokeTests(unittest.TestCase):
         app.NODE_PTY_STATE_DIR.mkdir(parents=True, exist_ok=True)
         app.NODE_PTY_STATE_PATH = app.NODE_PTY_STATE_DIR / "node-pty-copilot-session.json"
         app.NODE_PTY_WINDOW_STATE_PATH = app.NODE_PTY_STATE_DIR / "node-pty-copilot-window.json"
+        app.REPORTS_DIR = cls.test_state_dir / "reports"
+        (app.REPORTS_DIR / "20260903v1" / "RegressionError01").mkdir(parents=True, exist_ok=True)
+        (app.REPORTS_DIR / "20260903v1" / "summary.md").write_text(
+            "# Summary\n\n| Test | Status | Detail |\n| --- | --- | --- |\n| regression-draft-smoke | failed | RegressionError01 |\n",
+            encoding="utf-8",
+        )
+        (app.REPORTS_DIR / "20260903v1" / "RegressionError01" / "report.md").write_text(
+            "# RegressionError01\n\nDraft regression failure example.\n",
+            encoding="utf-8",
+        )
+        app.DRAFT_TESTS_DIR = cls.test_state_dir / "regression-drafts"
+        draft_dir = app.DRAFT_TESTS_DIR / "danielolvedal"
+        draft_dir.mkdir(parents=True, exist_ok=True)
+        (draft_dir / "draft-smoke.md").write_text(
+            """# Regressionstest - draft smoke
+
+## Test-ID
+
+regression-draft-smoke
+
+## Summary
+
+Smoke-test for a per-user regression draft.
+
+## Dependencies
+
+- none
+
+## Typ
+
+Manual draft regression.
+
+## Owner
+
+danielolvedal
+
+## Maintainers
+
+- danielolvedal
+""",
+            encoding="utf-8",
+        )
         cls.backend = app.ControlPlaneBackend(app.REPO_ROOT)
         cls.server = app.make_server("127.0.0.1", 0, cls.backend)
         cls.port = cls.server.server_address[1]
@@ -67,6 +111,8 @@ class BackendSmokeTests(unittest.TestCase):
         app.NODE_PTY_STATE_DIR = cls.previous_node_pty_state_dir
         app.NODE_PTY_STATE_PATH = cls.previous_node_pty_state_path
         app.NODE_PTY_WINDOW_STATE_PATH = cls.previous_node_pty_window_state_path
+        app.REPORTS_DIR = cls.previous_reports_dir
+        app.DRAFT_TESTS_DIR = cls.previous_draft_tests_dir
         shutil.rmtree(cls.test_state_dir, ignore_errors=True)
 
     def setUp(self) -> None:
@@ -88,6 +134,9 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(health["status"], "ok")
         self.assertIn("frontend_dir", health["configuration"])
+        self.assertEqual("local_tmp_only", health["configuration"]["report_storage_policy"])
+        self.assertIn("reports", health["configuration"]["report_dir"])
+        self.assertIn("regression-drafts", health["configuration"]["draft_test_dir"])
 
         status, catalog = self.request("GET", "/api/regression/tests")
         self.assertEqual(status, 200)
@@ -106,6 +155,12 @@ class BackendSmokeTests(unittest.TestCase):
         self.assertEqual([], csc_localization_test["dependency_keys"])
         self.assertEqual([], csc_localization_test["dependency_test_ids"])
         self.assertEqual("none", csc_localization_test["dependency_mode"])
+        self.assertEqual("shared", csc_localization_test["owner"])
+        draft_test = next(test for test in catalog["tests"] if test["test_id"] == "regression-draft-smoke")
+        self.assertEqual("draft", draft_test["scope"])
+        self.assertFalse(draft_test["promoted"])
+        self.assertEqual("danielolvedal", draft_test["owner"])
+        self.assertEqual(["danielolvedal"], draft_test["maintainers"])
 
         status, mermaid = self.request("GET", "/api/regression/mermaid")
         self.assertEqual(status, 200)
@@ -201,7 +256,7 @@ class BackendSmokeTests(unittest.TestCase):
         status, catalog = self.request("GET", "/api/regression/tests")
         self.assertEqual(status, 200)
         tests_by_key = {test["catalog_key"]: test for test in catalog["tests"]}
-        self.assertEqual(["B"], tests_by_key["G"]["dependency_keys"])
+        self.assertEqual(["B", "K"], tests_by_key["G"]["dependency_keys"])
         self.assertNotIn("G", tests_by_key["G"]["dependencies"])
 
     def test_frontend_log_ingestion(self) -> None:
@@ -260,6 +315,49 @@ class BackendSmokeTests(unittest.TestCase):
         conn.close()
         self.assertTrue(any(body["text"] == "\t" and body["clear_line"] == 0 and body["submit"] == 0 for body in queue_bodies))
         self.assertTrue(any(body["text"] == "/help" and body["submit"] == 1 for body in queue_bodies))
+
+    def test_ai_console_detects_interactive_choice_prompt_and_preserves_raw_response(self) -> None:
+        queue_dir = app.REPO_ROOT / "tmp" / "copilot_admin_control_plane" / f"backend-console-interactive-queue-{uuid.uuid4().hex}"
+        queue_dir.mkdir(parents=True, exist_ok=True)
+        queue_db = queue_dir / "transport.sqlite"
+        self.request(
+            "POST",
+            "/api/test/inject-host-state",
+            {
+                "copilot_state": {
+                    "status": "running",
+                    "running": True,
+                    "input_queue_dir": str(queue_dir),
+                    "input_queue_db_path": str(queue_db),
+                    "input_queue": {"pending": 0},
+                    "user_input_required": False,
+                    "last_output_tail": "Godkännt upp till 10 stage-kontrakt\n> YES\n  NO\n  Other (type your answer)\n↑/↓ select · enter accept · tab next · ctrl+d decline · esc cancel",
+                }
+            },
+        )
+
+        status, console = self.request("GET", "/api/ai-console")
+        self.assertEqual(status, 200)
+        self.assertTrue(console["user_input_required"])
+        self.assertEqual("interactive_choice_prompt", console["user_input_reason"])
+        self.assertFalse(console["command_ready"])
+        self.assertEqual("choice_prompt", console["interactive_prompt"]["kind"])
+        self.assertEqual("YES", console["interactive_prompt"]["options"][0]["label"])
+        self.assertEqual("NO", console["interactive_prompt"]["options"][1]["label"])
+        self.assertTrue(console["interactive_prompt"]["options"][2]["requires_text"])
+
+        status, queued = self.request(
+            "POST",
+            "/api/ai-console/input",
+            {"text": "\x1b[B\r", "display_text": "Välj NO", "submit": False, "clear_line": False, "interactive_response": True},
+        )
+        self.assertEqual(status, 202)
+        self.assertTrue(queued["accepted"])
+        conn = sqlite3.connect(queue_db)
+        conn.row_factory = sqlite3.Row
+        rows = [dict(row) for row in conn.execute("SELECT text, display_text, clear_line, submit FROM input_queue ORDER BY id").fetchall()]
+        conn.close()
+        self.assertTrue(any(row["text"] == "\x1b[B\r" and row["display_text"] == "Välj NO" and row["clear_line"] == 0 and row["submit"] == 0 for row in rows))
 
     def test_ai_console_does_not_verify_permissions_from_requested_policy_only(self) -> None:
         self.request(

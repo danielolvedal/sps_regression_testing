@@ -155,13 +155,21 @@
             <div id="ai-console-output" class="ai-console-output" data-testid="ai-console-output" role="log" aria-live="polite">Väntar på Copilot CLI-transkript...</div>
             <form id="ai-console-form" class="ai-console-form" data-testid="ai-console-form">
               <label for="ai-console-input">Skriv till samma Copilot CLI-session</label>
+              <div id="ai-console-interaction" class="ai-console-interaction" data-testid="ai-console-interaction" hidden>
+                <div id="ai-console-interaction-question" class="ai-console-interaction-question" data-testid="ai-console-interaction-question"></div>
+                <div id="ai-console-interaction-options" class="ai-console-interaction-options" data-testid="ai-console-interaction-options"></div>
+              </div>
               <div class="ai-console-input-row">
                 <textarea id="ai-console-input" data-testid="ai-console-input" rows="3" placeholder="Skriv din prompt här"></textarea>
                 <button class="primary" id="ai-console-send" data-testid="ai-console-send" type="submit">Skicka</button>
               </div>
               <div class="ai-console-special-actions" aria-label="Specialkommandon">
+                <button id="ai-console-send-enter" data-testid="ai-console-send-enter" type="button">Skicka ENTER</button>
+                <button id="ai-console-send-up" data-testid="ai-console-send-up" type="button">Skicka ↑</button>
+                <button id="ai-console-send-down" data-testid="ai-console-send-down" type="button">Skicka ↓</button>
                 <button id="ai-console-send-esc" data-testid="ai-console-send-esc" type="button">Skicka ESC</button>
                 <button id="ai-console-send-tab" data-testid="ai-console-send-tab" type="button">Skicka TAB</button>
+                <button id="ai-console-send-ctrl-d" data-testid="ai-console-send-ctrl-d" type="button">Skicka Ctrl+D</button>
               </div>
               <small id="ai-console-hint" data-testid="ai-console-hint">Redo. Vanliga prompts kompletteras automatiskt med standardinstruktion.</small>
             </form>
@@ -171,7 +179,7 @@
         <section id="view-regressioner" class="view" data-testid="view-regressioner">
           <div class="panel-header">
             <h2>Regressioner</h2>
-            <p>Välj test och skapa asynkrona Copilot-jobb via backend.</p>
+            <p>Välj promotade tester eller användarspecifika drafts och skapa asynkrona Copilot-jobb via backend.</p>
           </div>
           <div class="toolbar">
             <button class="primary" id="run-all-button" data-testid="run-all-regressions-button">Kör alla regressionstester</button>
@@ -205,7 +213,7 @@
         <section id="view-rapporter" class="view" data-testid="view-rapporter">
           <div class="panel-header">
             <h2>Rapporter</h2>
-            <p>Läs Markdown-rapporter i en formaterad vy.</p>
+            <p>Läs lokala Markdown-rapporter från din tmp-baserade arbetsyta i en formaterad vy.</p>
           </div>
           <input id="report-filter" data-testid="report-filter" type="search" placeholder="Filtrera rapporter" />
           <div class="split">

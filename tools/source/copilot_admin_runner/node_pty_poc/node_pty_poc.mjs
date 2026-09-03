@@ -351,9 +351,115 @@ function stripAnsi(text) {
   return text.replace(/\x1B(?:\][^\x07]*(?:\x07|\x1B\\)|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_])/g, '');
 }
 
+const INTERACTIVE_CHOICE_NAVIGATION_PATTERN = /(↑\/↓|up\/down|enter\s+(?:to\s+)?(?:select|accept|confirm)|tab\s+(?:to\s+)?next|ctrl\+d|ctrl-d|esc\s+(?:to\s+)?cancel)/i;
+
+function normalizeInteractivePromptLine(line) {
+  const text = String(line ?? '').replace(/\u00A0/g, ' ').trim();
+  if (/^[╭╮╰╯─━═┌┐└┘│┃║├┤┬┴┼ ]+$/.test(text)) {
+    return '';
+  }
+  return text.replace(/^[│┃║|]\s*/, '').replace(/\s*[│┃║|]\s*$/, '').trim();
+}
+
+function isInteractiveOptionLabel(line) {
+  const candidate = String(line ?? '').replace(/\s+/g, ' ').trim();
+  if (!candidate || INTERACTIVE_CHOICE_NAVIGATION_PATTERN.test(candidate) || candidate.endsWith('?')) {
+    return false;
+  }
+  const lowered = candidate.toLowerCase();
+  if (['yes', 'no', 'approve', 'deny', 'cancel', 'continue'].includes(lowered)) {
+    return true;
+  }
+  if (lowered.startsWith('other')) {
+    return true;
+  }
+  return /^[A-Z][A-Z0-9 '&()/._-]{0,48}$/.test(candidate) && candidate.split(/\s+/).length <= 6;
+}
+
+function parseInteractiveOption(line) {
+  const candidate = normalizeInteractivePromptLine(line);
+  if (!candidate) {
+    return null;
+  }
+  let match = candidate.match(/^(?<marker>[❯›>])\s*(?:(?<number>\d+)\.\s*)?(?<label>.+?)$/u);
+  if (match?.groups) {
+    const label = String(match.groups.label ?? '').replace(/\s+/g, ' ').trim();
+    return {
+      label,
+      selected: true,
+      number: match.groups.number ? Number(match.groups.number) : null,
+      requires_text: /type your answer/i.test(label),
+    };
+  }
+  match = candidate.match(/^(?<number>\d+)\.\s*(?<label>.+?)$/u);
+  if (match?.groups) {
+    const label = String(match.groups.label ?? '').replace(/\s+/g, ' ').trim();
+    return {
+      label,
+      selected: false,
+      number: match.groups.number ? Number(match.groups.number) : null,
+      requires_text: /type your answer/i.test(label),
+    };
+  }
+  if (!isInteractiveOptionLabel(candidate)) {
+    return null;
+  }
+  return {
+    label: candidate,
+    selected: false,
+    number: null,
+    requires_text: /type your answer/i.test(candidate),
+  };
+}
+
+function extractInteractivePrompt(text) {
+  const normalizedLines = String(text ?? '')
+    .split(/\r?\n/)
+    .map(normalizeInteractivePromptLine)
+    .filter(Boolean);
+  if (!normalizedLines.length) {
+    return null;
+  }
+  const anchors = normalizedLines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => INTERACTIVE_CHOICE_NAVIGATION_PATTERN.test(line) || /^[❯›>]\s*/u.test(line));
+  for (let i = anchors.length - 1; i >= 0; i -= 1) {
+    const anchor = anchors[i].index;
+    const block = normalizedLines.slice(Math.max(0, anchor - 10), anchor + 1);
+    const parsed = block.map((line) => ({ line, option: parseInteractiveOption(line) }));
+    const options = parsed.filter((item) => item.option).map((item) => item.option);
+    if (options.length < 2) {
+      continue;
+    }
+    const firstOptionIndex = parsed.findIndex((item) => item.option);
+    const promptLines = parsed
+      .slice(0, firstOptionIndex)
+      .map((item) => item.line)
+      .filter((line) => line && !INTERACTIVE_CHOICE_NAVIGATION_PATTERN.test(line));
+    const navigationHint = [...parsed].reverse().find((item) => INTERACTIVE_CHOICE_NAVIGATION_PATTERN.test(item.line))?.line ?? null;
+    const selectedIndex = Math.max(0, options.findIndex((option) => option.selected));
+    return {
+      kind: 'choice_prompt',
+      reason: 'interactive_choice_prompt',
+      prompt_lines: promptLines.slice(-3),
+      question: promptLines.length ? promptLines[promptLines.length - 1] : null,
+      options,
+      selected_index: selectedIndex,
+      navigation_hint: navigationHint,
+    };
+  }
+  return null;
+}
+
 function detectUserInputRequest(text) {
   const normalized = text.toLowerCase();
   const permissionsConfirmed = hasPermissionConfirmation(normalized);
+  if (extractInteractivePrompt(text)) {
+    return {
+      required: true,
+      reason: 'interactive_choice_prompt',
+    };
+  }
   const patterns = [
     {
       reason: 'directory_trust_prompt',
@@ -658,6 +764,7 @@ async function runInteractiveCopilot(options = {}) {
   function writeSessionState(extra = {}) {
     const recentOutput = screenText.slice(-4000);
     const userInputRequest = detectUserInputRequest(recentOutput);
+    const interactivePrompt = extractInteractivePrompt(recentOutput);
     try {
       upsertSessionState({
         session_id: sessionId,
@@ -687,6 +794,7 @@ async function runInteractiveCopilot(options = {}) {
         input_queue_status: queueSnapshot(sessionInputQueueDir),
         user_input_required: userInputRequest.required,
         user_input_reason: userInputRequest.reason,
+        interactive_prompt: interactivePrompt,
         last_output_tail: screenText.slice(-4000),
         last_output_chunk_at: lastOutputChunkAt,
         last_output_chunk_bytes: lastOutputChunkBytes,

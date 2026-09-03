@@ -24,17 +24,76 @@ from transport_db import enqueue_input, get_session_state, latest_trace_events, 
 
 
 REPO_ROOT = Path(os.environ.get("SPS_REPO_ROOT", Path(__file__).resolve().parents[4])).resolve()
+
+
+def repo_configured_path(env_name: str, default: Path) -> Path:
+    configured = os.environ.get(env_name, "").strip()
+    candidate = Path(configured) if configured else default
+    if not candidate.is_absolute():
+        candidate = REPO_ROOT / candidate
+    return candidate.resolve()
+
+
+def normalize_owner_slug(value: str | None) -> str:
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", str(value or "").strip()).strip("-")
+    return slug or "unknown-user"
+
+
+def current_owner_slug() -> str:
+    for env_name in (
+        "COPILOT_ADMIN_TEST_OWNER",
+        "COPILOT_ADMIN_OWNER",
+        "GITHUB_USER",
+        "GITHUB_ACTOR",
+        "GH_USER",
+        "USERNAME",
+        "USER",
+    ):
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return normalize_owner_slug(value)
+    return "unknown-user"
+
+
+def default_reports_dir() -> Path:
+    return REPO_ROOT / "tmp" / "regression_local" / current_owner_slug() / "reports"
+
+
+def display_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return rel_path(resolved)
+    except ValueError:
+        return str(resolved)
+
+
 FRONTEND_DIR = Path(
     os.environ.get(
         "COPILOT_ADMIN_FRONTEND_DIR",
         REPO_ROOT / "tools" / "source" / "copilot_admin_control_plane" / "frontend",
     )
 ).resolve()
-TEST_DIR = REPO_ROOT / "testing" / "regression_test"
-REPORTS_DIR = REPO_ROOT / "test_reports"
+PROMOTED_TEST_DIR = repo_configured_path(
+    "COPILOT_ADMIN_REGRESSION_TEST_DIR",
+    REPO_ROOT / "testing" / "regression_test",
+)
+DRAFT_TESTS_DIR = repo_configured_path(
+    "COPILOT_ADMIN_REGRESSION_DRAFTS_DIR",
+    REPO_ROOT / "testing" / "regression_drafts",
+)
+REPORTS_DIR = repo_configured_path(
+    "COPILOT_ADMIN_REPORTS_DIR",
+    default_reports_dir(),
+)
 MANUALS_DIR = REPO_ROOT / "manuals"
-CATALOG_PATH = TEST_DIR / "regression-test-catalog.md"
-MERMAID_PATH = TEST_DIR / "regression-test-dependencies.mmd"
+CATALOG_PATH = repo_configured_path(
+    "COPILOT_ADMIN_REGRESSION_CATALOG_PATH",
+    PROMOTED_TEST_DIR / "regression-test-catalog.md",
+)
+MERMAID_PATH = repo_configured_path(
+    "COPILOT_ADMIN_REGRESSION_MERMAID_PATH",
+    PROMOTED_TEST_DIR / "regression-test-dependencies.mmd",
+)
 NODE_PTY_STATE_DIR = Path(
     os.environ.get("COPILOT_ADMIN_RUNNER_STATE_DIR", REPO_ROOT / "tmp" / "copilot_admin_runner_state")
 ).resolve()
@@ -111,10 +170,23 @@ def normalize_mode(value: Any) -> str | None:
     return None
 
 
+INTERACTIVE_CHOICE_NAVIGATION_PATTERN = re.compile(
+    r"(↑/↓|up/down|enter\s+(?:to\s+)?(?:select|accept|confirm)|tab\s+(?:to\s+)?next|ctrl\+d|ctrl-d|esc\s+(?:to\s+)?cancel)",
+    re.IGNORECASE,
+)
+
+
+def is_ai_console_control_sequence(text: str) -> bool:
+    raw = str(text or "")
+    if not raw:
+        return False
+    return bool(re.fullmatch(r"(?:\x1b\[[0-?]*[ -/]*[@-~]|\x1b|[\t\r\x04])+", raw))
+
+
 def is_ai_console_special_input(text: str) -> bool:
     raw = str(text or "")
     stripped = raw.strip()
-    return raw in {"\t", "\x1b"} or stripped == "\x1b" or stripped.startswith("/")
+    return is_ai_console_control_sequence(raw) or stripped.startswith("/")
 
 
 def with_ai_console_standard_instruction(text: str) -> str:
@@ -123,6 +195,98 @@ def with_ai_console_standard_instruction(text: str) -> str:
     if AI_CONSOLE_STANDARD_INSTRUCTION in text:
         return text
     return f"{text.rstrip()}\n\nStandardinstruktion: {AI_CONSOLE_STANDARD_INSTRUCTION}"
+
+
+def normalize_ai_console_prompt_line(line: str) -> str:
+    text = str(line or "").replace("\u00A0", " ").strip()
+    if re.fullmatch(r"[╭╮╰╯─━═┌┐└┘│┃║├┤┬┴┼ ]+", text):
+        return ""
+    text = re.sub(r"^[│┃║|]\s*", "", text)
+    text = re.sub(r"\s*[│┃║|]\s*$", "", text)
+    return text.strip()
+
+
+def is_ai_console_option_label(text: str) -> bool:
+    candidate = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not candidate or INTERACTIVE_CHOICE_NAVIGATION_PATTERN.search(candidate) or candidate.endswith("?"):
+        return False
+    lowered = candidate.lower()
+    if lowered in {"yes", "no", "approve", "deny", "cancel", "continue"}:
+        return True
+    if lowered.startswith("other"):
+        return True
+    return bool(re.fullmatch(r"[A-Z][A-Z0-9 '&()/._-]{0,48}", candidate)) and len(candidate.split()) <= 6
+
+
+def parse_ai_console_option(line: str) -> dict[str, Any] | None:
+    candidate = normalize_ai_console_prompt_line(line)
+    if not candidate:
+        return None
+    match = re.match(r"^(?P<marker>[❯›>])\s*(?:(?P<number>\d+)\.\s*)?(?P<label>.+?)$", candidate)
+    if match:
+        label = re.sub(r"\s+", " ", str(match.group("label") or "")).strip()
+        return {
+            "label": label,
+            "selected": True,
+            "number": int(match.group("number")) if match.group("number") else None,
+            "requires_text": "type your answer" in label.lower(),
+        }
+    match = re.match(r"^(?P<number>\d+)\.\s*(?P<label>.+?)$", candidate)
+    if match:
+        label = re.sub(r"\s+", " ", str(match.group("label") or "")).strip()
+        return {
+            "label": label,
+            "selected": False,
+            "number": int(match.group("number")) if match.group("number") else None,
+            "requires_text": "type your answer" in label.lower(),
+        }
+    if not is_ai_console_option_label(candidate):
+        return None
+    return {
+        "label": candidate,
+        "selected": False,
+        "number": None,
+        "requires_text": "type your answer" in candidate.lower(),
+    }
+
+
+def extract_ai_console_interactive_prompt(transcript: str) -> dict[str, Any] | None:
+    normalized_lines = [normalize_ai_console_prompt_line(line) for line in str(transcript or "").splitlines()]
+    normalized_lines = [line for line in normalized_lines if line]
+    if not normalized_lines:
+        return None
+    anchors = [
+        index
+        for index, line in enumerate(normalized_lines)
+        if INTERACTIVE_CHOICE_NAVIGATION_PATTERN.search(line) or re.match(r"^[❯›>]\s*", line)
+    ]
+    for anchor in reversed(anchors):
+        block = normalized_lines[max(0, anchor - 10) : anchor + 1]
+        parsed: list[tuple[str, dict[str, Any] | None]] = [(line, parse_ai_console_option(line)) for line in block]
+        options = [item for _, item in parsed if item is not None]
+        if len(options) < 2:
+            continue
+        first_option_index = next(index for index, (_, item) in enumerate(parsed) if item is not None)
+        prompt_lines = [
+            line
+            for line, item in parsed[:first_option_index]
+            if line and item is None and not INTERACTIVE_CHOICE_NAVIGATION_PATTERN.search(line)
+        ]
+        navigation_hint = next(
+            (line for line, _ in reversed(parsed) if INTERACTIVE_CHOICE_NAVIGATION_PATTERN.search(line)),
+            None,
+        )
+        selected_index = next((index for index, option in enumerate(options) if option.get("selected")), 0)
+        return {
+            "kind": "choice_prompt",
+            "reason": "interactive_choice_prompt",
+            "prompt_lines": prompt_lines[-3:],
+            "question": prompt_lines[-1] if prompt_lines else None,
+            "options": options,
+            "selected_index": selected_index,
+            "navigation_hint": navigation_hint,
+        }
+    return None
 
 
 class ApiError(Exception):
@@ -193,6 +357,60 @@ def title_from_markdown(content: str, fallback: str) -> str:
         if stripped.startswith("# "):
             return stripped[2:].strip() or fallback
     return fallback
+
+
+def markdown_section(content: str, heading: str) -> str | None:
+    match = re.search(
+        rf"^## {re.escape(heading)}\s*$\n+(.*?)(?=^\#\# |\Z)",
+        content,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        return None
+    value = match.group(1).strip()
+    return value or None
+
+
+def normalize_markdown_scalar(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = " ".join(str(value).replace("\u00A0", " ").split()).strip()
+    if normalized.startswith("`") and normalized.endswith("`") and len(normalized) >= 2:
+        normalized = normalized[1:-1].strip()
+    return normalized or None
+
+
+def markdown_list(section: str | None) -> list[str]:
+    if not section:
+        return []
+    items: list[str] = []
+    for line in section.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        value = normalize_markdown_scalar(stripped[2:].strip())
+        if value:
+            items.append(value)
+    if len(items) == 1 and items[0].casefold() in {"none", "-"}:
+        return []
+    return items
+
+
+def dependency_keys_from_text(dependency_text: str, catalog_key: str) -> list[str]:
+    if dependency_text.strip() == "-":
+        return []
+    keys: list[str] = []
+    for clause in dependency_text.split(","):
+        normalized_clause = normalize_markdown_scalar(clause)
+        if not normalized_clause:
+            continue
+        parts = [normalize_markdown_scalar(part) for part in normalized_clause.split("->")]
+        parts = [part for part in parts if part]
+        source_segment = parts[-2] if len(parts) >= 2 and parts[-1] == catalog_key else (parts[0] if parts else normalized_clause)
+        for candidate in [normalize_markdown_scalar(part) for part in source_segment.split("+")]:
+            if candidate and candidate != catalog_key and candidate not in keys:
+                keys.append(candidate)
+    return keys
 
 
 def path_for_report_id(report_id: str) -> Path:
@@ -341,8 +559,78 @@ class ControlPlaneBackend:
     def _write_jobs(self, jobs: list[dict[str, Any]]) -> None:
         write_json_atomically(JOBS_PATH, jobs)
 
+    def parse_test_document(
+        self,
+        path: Path,
+        *,
+        scope: str,
+        promoted: bool,
+        catalog_key: str | None = None,
+        summary: str | None = None,
+        dependency_keys: list[str] | None = None,
+        dependency_label: str | None = None,
+    ) -> dict[str, Any]:
+        content = path.read_text(encoding="utf-8")
+        resolved = ensure_child(self.repo_root, path)
+        detected_test_id = normalize_markdown_scalar(markdown_section(content, "Test-ID")) or path.stem
+        detected_catalog_key = normalize_markdown_scalar(markdown_section(content, "Catalog Key"))
+        detected_summary = normalize_markdown_scalar(markdown_section(content, "Summary")) or title_from_markdown(content, path.stem)
+        dependency_items = markdown_list(markdown_section(content, "Dependencies"))
+        owner = normalize_markdown_scalar(markdown_section(content, "Owner"))
+        if owner is None and scope == "draft":
+            try:
+                relative = resolved.relative_to(DRAFT_TESTS_DIR)
+                if len(relative.parts) > 1:
+                    owner = normalize_owner_slug(relative.parts[0])
+            except ValueError:
+                owner = None
+        if owner is None and promoted:
+            owner = "shared"
+        maintainers = markdown_list(markdown_section(content, "Maintainers"))
+        if not maintainers and owner and owner != "shared":
+            maintainers = [owner]
+        display_dependencies = dependency_items
+        effective_dependency_keys = dependency_keys or []
+        effective_dependency_mode = "required" if effective_dependency_keys else ("draft" if scope == "draft" and display_dependencies else "none")
+        if promoted:
+            display_dependencies = effective_dependency_keys
+            effective_dependency_mode = "required" if effective_dependency_keys else "none"
+        return {
+            "catalog_key": catalog_key or detected_catalog_key or "",
+            "test_id": detected_test_id,
+            "summary": summary or detected_summary,
+            "title": title_from_markdown(content, detected_test_id),
+            "dependency": dependency_label or (" -> ".join(effective_dependency_keys) if effective_dependency_keys else "-"),
+            "dependencies": display_dependencies,
+            "dependency_keys": effective_dependency_keys,
+            "dependency_test_ids": [],
+            "dependency_mode": effective_dependency_mode,
+            "file": rel_path(resolved),
+            "file_path": rel_path(resolved),
+            "test_type": self.test_type_for(resolved),
+            "scope": scope,
+            "promoted": promoted,
+            "owner": owner,
+            "maintainers": maintainers,
+        }
+
+    def list_draft_tests(self) -> list[dict[str, Any]]:
+        drafts: list[dict[str, Any]] = []
+        if not DRAFT_TESTS_DIR.is_dir():
+            return drafts
+        for path in sorted(DRAFT_TESTS_DIR.rglob("*.md"), key=lambda item: str(item).casefold()):
+            if any(part == "node_modules" for part in path.parts):
+                continue
+            safe = ensure_child(DRAFT_TESTS_DIR, path)
+            content = safe.read_text(encoding="utf-8")
+            if not content.lstrip().startswith("# Regressionstest -"):
+                continue
+            draft = self.parse_test_document(safe, scope="draft", promoted=False)
+            drafts.append(draft)
+        return drafts
+
     def parse_catalog(self) -> dict[str, Any]:
-        entries: list[dict[str, Any]] = []
+        promoted_entries: list[dict[str, Any]] = []
         text = CATALOG_PATH.read_text(encoding="utf-8")
         for line in text.splitlines():
             if not line.startswith("| `"):
@@ -353,29 +641,33 @@ class ControlPlaneBackend:
             dependency_text = cells[1].strip("`")
             catalog_key = cells[0].strip("`")
             file_path = cells[4].strip("`")
-            dependency_keys = []
-            if dependency_text != "-":
-                dependency_keys = [part.strip() for part in dependency_text.split("->") if part.strip() and part.strip() != catalog_key]
-            entries.append(
-                {
-                    "catalog_key": catalog_key,
-                    "dependency": dependency_text,
-                    "dependencies": dependency_keys,
-                    "dependency_keys": dependency_keys,
-                    "test_id": cells[2].strip("`"),
-                    "summary": cells[3],
-                    "file": file_path,
-                    "file_path": file_path,
-                    "test_type": self.test_type_for(REPO_ROOT / file_path),
-                }
+            dependency_keys = dependency_keys_from_text(dependency_text, catalog_key)
+            promoted_entries.append(
+                self.parse_test_document(
+                    self.repo_root / file_path,
+                    scope="promoted",
+                    promoted=True,
+                    catalog_key=catalog_key,
+                    summary=cells[3],
+                    dependency_keys=dependency_keys,
+                    dependency_label=dependency_text,
+                )
             )
-        test_id_by_key = {entry["catalog_key"]: entry["test_id"] for entry in entries}
-        for entry in entries:
+        test_id_by_key = {entry["catalog_key"]: entry["test_id"] for entry in promoted_entries}
+        for entry in promoted_entries:
             entry["dependency_test_ids"] = [
                 test_id_by_key[key] for key in entry["dependency_keys"] if key in test_id_by_key
             ]
-            entry["dependency_mode"] = "required" if entry["dependency_keys"] else "none"
-        return {"path": rel_path(CATALOG_PATH), "count": len(entries), "tests": entries}
+        draft_entries = self.list_draft_tests()
+        tests = promoted_entries + draft_entries
+        return {
+            "path": rel_path(CATALOG_PATH),
+            "count": len(tests),
+            "promoted_count": len(promoted_entries),
+            "draft_count": len(draft_entries),
+            "draft_root": display_path(DRAFT_TESTS_DIR),
+            "tests": tests,
+        }
 
     def test_type_for(self, path: Path) -> str:
         if not path.is_file():
@@ -610,13 +902,17 @@ class ControlPlaneBackend:
         )
         permissions_verified = permissions_allow_all_verified and (directory_trust_verified or not directory_trust_requested)
         permissions_hint = session.get("permissions_hint") or ("allow-all" if permissions_verified or permissions_allow_all_requested else None)
-        command_ready = status == "running" and not bool(session.get("user_input_required")) and permissions_verified
         query = query or {}
         include_trace = str((query.get("include_trace") or ["1"])[0]).strip().lower() not in {"0", "false", "no"}
         requested_cursor = self._int_query_value(query, "cursor")
         requested_limit = self._int_query_value(query, "limit") or DEFAULT_CONSOLE_TAIL_BYTES
         limit = max(1024, min(requested_limit, MAX_CONSOLE_DELTA_BYTES))
         transcript_payload = self.read_console_transcript(session, requested_cursor, limit)
+        interactive_prompt = session.get("interactive_prompt") if isinstance(session.get("interactive_prompt"), dict) else None
+        if interactive_prompt is None:
+            interactive_prompt = extract_ai_console_interactive_prompt(transcript_payload["text"] or transcript)
+        user_input_required = bool(session.get("user_input_required")) or bool(interactive_prompt)
+        user_input_reason = session.get("user_input_reason") or (interactive_prompt or {}).get("reason")
         input_queue = session.get("input_queue") or {}
         db_path_value = session.get("input_queue_db_path") or input_queue.get("db_path")
         queue_dir_value = session.get("input_queue_dir") or input_queue.get("queue_dir")
@@ -642,6 +938,7 @@ class ControlPlaneBackend:
                     }
             except Exception:
                 input_queue = dict(input_queue)
+        command_ready = status == "running" and not user_input_required and permissions_verified
         return {
             "status": status,
             "running": bool(session.get("running")) or status in {"running", "user_input_required"},
@@ -655,8 +952,9 @@ class ControlPlaneBackend:
                 "next_cursor": transcript_payload["next_cursor"],
             },
             "started_at": session.get("started_at"),
-            "user_input_required": bool(session.get("user_input_required")),
-            "user_input_reason": session.get("user_input_reason"),
+            "user_input_required": user_input_required,
+            "user_input_reason": user_input_reason,
+            "interactive_prompt": interactive_prompt,
             "transcript_tail": transcript_payload["text"] or transcript[-limit:],
             "transcript": transcript_payload,
             "transcript_path": session.get("transcript_path"),
@@ -867,9 +1165,14 @@ class ControlPlaneBackend:
             "configuration": {
                 "repo_root": str(self.repo_root),
                 "env": self.env,
-                "state_dir": rel_path(STATE_DIR),
-                "log_dir": rel_path(LOG_DIR),
+                "state_dir": display_path(STATE_DIR),
+                "log_dir": display_path(LOG_DIR),
                 "frontend_dir": str(FRONTEND_DIR),
+                "promoted_test_dir": display_path(PROMOTED_TEST_DIR),
+                "draft_test_dir": display_path(DRAFT_TESTS_DIR),
+                "report_dir": display_path(REPORTS_DIR),
+                "report_owner": current_owner_slug(),
+                "report_storage_policy": "local_tmp_only",
                 "frontend_route_version": frontend_route_version(),
             },
         }
@@ -883,18 +1186,41 @@ class ControlPlaneBackend:
         if job_type == "run_regression":
             catalog_key = payload.get("catalog_key")
             test_id = payload.get("test_id")
+            selected_test = None
             if test_id and not catalog_key:
                 for test in self.parse_catalog()["tests"]:
                     if test.get("test_id") == test_id:
+                        selected_test = test
                         catalog_key = test.get("catalog_key")
                         break
+            if selected_test is None and catalog_key:
+                for test in self.parse_catalog()["tests"]:
+                    if test.get("catalog_key") == catalog_key:
+                        selected_test = test
+                        break
+            if selected_test:
+                scope = selected_test.get("scope") or ("promoted" if selected_test.get("promoted") else "draft")
+                owner = selected_test.get("owner") or "shared"
+                file_path = selected_test.get("file_path") or selected_test.get("file") or "okänd testfil"
+                if scope == "draft":
+                    return (
+                        f"Kör draft-regressionstest {selected_test['test_id']} från {file_path} för {owner}. "
+                        "Läs testfilen direkt, behandla det som ett användarspecifikt utkast och skriv eventuella rapporter lokalt under tmp enligt repositoryts regler."
+                    )
+                if catalog_key:
+                    return (
+                        f"Kör regressionstest {catalog_key} ({selected_test['test_id']}) från {file_path}. "
+                        "Följ repositoryts Regression Mode-regler och skriv eventuella rapporter lokalt under tmp."
+                    )
             if catalog_key:
                 if test_id:
-                    return f"Kör regressionstest {catalog_key} ({test_id}). Följ repositoryts Regression Mode-regler."
-                return f"Kör regressionstest {catalog_key}. Följ repositoryts Regression Mode-regler."
+                    return f"Kör regressionstest {catalog_key} ({test_id}). Följ repositoryts Regression Mode-regler med lokal rapportering under tmp."
+                return f"Kör regressionstest {catalog_key}. Följ repositoryts Regression Mode-regler med lokal rapportering under tmp."
             if test_id:
-                return f"Kör regressionstest {test_id}. Följ repositoryts Regression Mode-regler."
-            return "Kör befintliga regressionstester. Följ repositoryts Regression Mode-regler."
+                return f"Kör regressionstest {test_id}. Följ repositoryts Regression Mode-regler med lokal rapportering under tmp."
+            if str(payload.get("scope") or "").lower() == "all":
+                return "Kör befintliga promotade regressionstester. Följ repositoryts Regression Mode-regler med lokal rapportering under tmp."
+            return "Kör befintliga regressionstester. Följ repositoryts Regression Mode-regler med lokal rapportering under tmp."
         if job_type == "session_start":
             return "Starta eller säkerställ SPS Copilot-admin host runner, node-pty Copilot-session och collaborative browser enligt repo-reglerna."
         return str(payload.get("prompt") or payload.get("command") or "").strip()
@@ -917,7 +1243,20 @@ class ControlPlaneBackend:
                         or response.get("status")
                     )
                 return {"dispatched": dispatched, "target": "host-runner", "response": response, "reason": reason}
-            response = self.call_host_runner("POST", "/copilot/input", {"text": job["prompt"], "job_id": job["job_id"], "trace_id": job["trace_id"]})
+            response = self.call_host_runner(
+                "POST",
+                "/copilot/input",
+                {
+                    "text": job["prompt"],
+                    "display_text": job["payload"].get("display_text"),
+                    "submit": job["payload"].get("submit"),
+                    "clear_line": job["payload"].get("clear_line"),
+                    "job_id": job["job_id"],
+                    "trace_id": job["trace_id"],
+                    "client_sent_at": job["payload"].get("client_sent_at"),
+                    "backend_accepted_at": job["payload"].get("backend_accepted_at"),
+                },
+            )
             return {"dispatched": response.get("status") not in {"failed", "error"}, "target": "host-runner", "response": response}
 
         copilot = self.copilot_session()
@@ -927,6 +1266,7 @@ class ControlPlaneBackend:
             return {"dispatched": False, "reason": "node-pty input queue is not available"}
         request = {
             "text": job["prompt"],
+            "display_text": job["payload"].get("display_text") or job["prompt"],
             "submit": job["payload"].get("submit") is not False,
             "clear_line": bool(job["payload"].get("clear_line")),
             "job_id": job["job_id"],
@@ -940,7 +1280,7 @@ class ControlPlaneBackend:
                 db_path,
                 source="backend-local",
                 text=request["text"],
-                display_text=request["text"],
+                display_text=request["display_text"],
                 clear_line=bool(request["clear_line"]),
                 submit=bool(request["submit"]),
                 job_id=job["job_id"],
@@ -958,11 +1298,13 @@ class ControlPlaneBackend:
 
     def send_ai_console_input(self, payload: dict[str, Any], trace_id: str | None = None) -> dict[str, Any]:
         raw_text = str(payload.get("text") if payload.get("text") is not None else payload.get("prompt") or "")
-        if not raw_text.strip() and raw_text not in {"\t", "\x1b"}:
+        if not raw_text.strip() and not is_ai_console_special_input(raw_text):
             raise ApiError(400, "text is required.")
-        text = with_ai_console_standard_instruction(raw_text)
+        interactive_response = bool(payload.get("interactive_response"))
+        text = raw_text if interactive_response else with_ai_console_standard_instruction(raw_text)
         submit = payload.get("submit") is not False
         job_id = payload.get("job_id") or f"console-{uuid.uuid4().hex}"
+        display_text = str(payload.get("display_text") or raw_text)
         request = {
             "job_id": job_id,
             "trace_id": trace_id or payload.get("trace_id") or uuid.uuid4().hex,
@@ -970,6 +1312,7 @@ class ControlPlaneBackend:
             "prompt": text,
             "payload": {
                 "text": text,
+                "display_text": display_text,
                 "submit": submit,
                 "clear_line": payload.get("clear_line") is not False,
                 "client_sent_at": payload.get("client_sent_at"),
@@ -988,6 +1331,7 @@ class ControlPlaneBackend:
         if host_runner_url():
             response = self.call_host_runner("POST", "/copilot/input", {
                 "text": text,
+                "display_text": display_text,
                 "submit": submit,
                 "clear_line": request["payload"]["clear_line"],
                 "job_id": job_id,

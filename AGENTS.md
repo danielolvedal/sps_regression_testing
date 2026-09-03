@@ -62,7 +62,7 @@ Den fastlåsta katalogstrukturen och reglerna för hur material sorteras finns i
 ## Förväntningar på nya artefakter
 
 - Om du skapar ett nytt beständigt dokument ska du också uppdatera `dokument_index\index.md`.
-- Undantag: innehåll under `test_reports` ska inte indexeras i `dokument_index\index.md`.
+- Undantag: lokala körartefakter under `tmp` ska inte indexeras i `dokument_index\index.md`.
 - Om du skapar ett nytt verktyg ska det få källkod i `tools\source` och en körbar entrypoint i `runtime` när det är relevant.
 - Om du extraherar data från systemet ska originaluttaget sparas i `raw_data`.
 - Om du sammanfattar eller normaliserar rådata för AI-bruk ska resultatet sparas i `syntetisk_data`.
@@ -70,18 +70,19 @@ Den fastlåsta katalogstrukturen och reglerna för hur material sorteras finns i
 ## Tolkning av regressionstest-kommandon
 
 - Om användaren ber om att köra ett regressionstest och meddelandet innehåller `regression` eller en uppenbar felstavning av ordet ska det tolkas som en begäran om regressionstestning.
-- Testdefinitioner och manuella scenarier finns i `testing\regression_test`.
+- Promotade testdefinitioner och manuella scenarier finns i `testing\regression_test`.
+- Personliga utkast och Learning Mode-kandidater ska ligga i `testing\regression_drafts\<github-anvandare>`.
 - Regressionstest ska i första hand hittas via `testing\regression_test\regression-test-catalog.md`, där namn, sammanfattning och beroenden finns.
 - Den renderbara beroendegrafen för regressionstester finns i `testing\regression_test\regression-test-dependencies.mmd` och ska hållas synkad med katalogen och testfilerna.
-- Tidigare körresultat och felrapporter finns i `test_reports`.
+- Lokala körresultat och felrapporter ska skrivas under `tmp\regression_local\<owner>\reports`.
 - UI-regressioner ska i första hand utföras genom att agenten följer dokumenterade teststeg, inte genom hårdkodad browserautomation.
 - Körbara runtime-skript ska främst användas för stabila strukturtester som dokumentindex och källinventering.
 - Om användaren signalerar att testet ska utvecklas, uppdateras, förbättras eller provas ska agenten gå in i `Learning Mode`.
-- I `Learning Mode` ska agenten uppdatera testdefinitioner och kataloger men **inte** skapa rapporter i `test_reports`.
+- I `Learning Mode` ska agenten uppdatera testdefinitioner och kataloger men **inte** skapa rapporter utanför den lokala `tmp`-ytan.
 - Om användaren ber om faktisk verifiering av ett befintligt test ska agenten använda `Regression Mode`.
 - Om avsikten är oklar ska agenten fråga exakt: `Ska jag köra befintliga regressionstester?`
 - Efter en UI-regressionskörning ska agenten uppdatera testfallet med återanvändbara lärdomar som gör framtida körningar snabbare.
-- Efter varje regressionskörning ska agenten bara skriva en testrapport under `test_reports\YYYYMMDDvN` i `Regression Mode`, när utfallet är passerat eller när ett fel är verifierat.
+- Efter varje regressionskörning ska agenten bara skriva en testrapport under `tmp\regression_local\<owner>\reports\YYYYMMDDvN` i `Regression Mode`, när utfallet är passerat eller när ett fel är verifierat.
 
 ## Mandatory krav
 
@@ -91,7 +92,7 @@ Den fastlåsta katalogstrukturen och reglerna för hur material sorteras finns i
 - Ingen dokumentationsrelaterad uppgift är klar förrän `.\runtime\test-document-index.ps1` har körts och passerat.
 - Ingen `raw_data`-relaterad dokumentationsuppgift är klar förrän `.\runtime\test-kallinventering-coverage.ps1` har körts och passerat.
 - Ingen regressionstest-relaterad dokumentationsuppgift är klar förrän `.\runtime\test-regression-dependencies.ps1` har körts och passerat.
-- Testrapporter i `test_reports` ska skrivas på formell engelska.
+- Testrapporter i `tmp\regression_local\<owner>\reports` ska skrivas på formell engelska.
 - Om testet fallerar ska `dokument_index\index.md` uppdateras innan arbetet avslutas.
 - Om källinventeringstestet fallerar ska `syntetisk_data\common\kallinventering.md` uppdateras innan arbetet avslutas.
 - Om `raw_data` ändras ska även berörda dokument under `syntetisk_data` analyseras och uppdateras; att bara lägga till källan i `kallinventering.md` räcker inte.

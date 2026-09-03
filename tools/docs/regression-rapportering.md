@@ -4,7 +4,7 @@ This document defines how regression test results must be documented and stored.
 
 ## Purpose
 
-Ensure that each eligible regression run leaves behind a traceable result package that both AI agents and developers can use without rediscovering the same context.
+Ensure that each eligible regression run leaves behind a traceable local result package that both AI agents and developers can use without rediscovering the same context.
 
 This reporting standard applies to `Regression Mode`. It does not apply to `Learning Mode`, where the purpose is to develop or refine the test itself.
 
@@ -15,26 +15,28 @@ There are two execution modes:
 - `Learning Mode`
 - `Regression Mode`
 
-In `Learning Mode`, the agent must not create or update run folders under `test_reports`.
+In `Learning Mode`, the agent must not create or update run folders outside the local `tmp` workspace.
 
-In `Regression Mode`, the agent may create or update run folders under `test_reports` according to the rules in this document.
+In `Regression Mode`, the agent may create or update run folders under the local report root according to the rules in this document.
 
 ## Storage Location
 
-All regression reports must be stored under:
+All regression reports must be stored locally under:
 
-`test_reports`
+`tmp\regression_local\<owner>\reports`
+
+`<owner>` should normally be the GitHub-style username for the person running or curating the regression work. Set `COPILOT_ADMIN_TEST_OWNER` when a machine account or Windows username would otherwise be ambiguous.
 
 ## Run Folder Naming
 
 Each reported regression run must create a folder using:
 
-`test_reports\YYYYMMDDvN`
+`tmp\regression_local\<owner>\reports\YYYYMMDDvN`
 
 Examples:
 
-- `test_reports\20260826v1`
-- `test_reports\20260826v2`
+- `tmp\regression_local\danielolvedal\reports\20260903v1`
+- `tmp\regression_local\danielolvedal\reports\20260903v2`
 
 `vN` is used when multiple separate runs are reported on the same day.
 
@@ -47,7 +49,7 @@ Each reported run folder must contain at minimum:
 
 ## Language Requirement
 
-All report files under `test_reports` must be written in clear, professional English suitable for an international development team.
+All report files under the local report root must be written in clear, professional English suitable for an international development team.
 
 ## Summary Format
 
@@ -64,18 +66,18 @@ If a test required candidate iteration because a selected object had no saleable
 
 Each verified defect must get its own folder:
 
-`test_reports\YYYYMMDDvN\RegressionErrorNN`
+`tmp\regression_local\<owner>\reports\YYYYMMDDvN\RegressionErrorNN`
 
 Examples:
 
-- `test_reports\20260826v1\RegressionError01`
-- `test_reports\20260826v1\RegressionError02`
+- `tmp\regression_local\danielolvedal\reports\20260903v1\RegressionError01`
+- `tmp\regression_local\danielolvedal\reports\20260903v1\RegressionError02`
 
 ## Verification Requirement Before Reporting
 
 A failed regression outcome must not be written as a report package for developers until the defect has been verified through at least three iterative reproductions with the same outcome.
 
-If the defect has not yet been verified three times, the agent must not create a failed-test report under `test_reports`. Instead, the agent should update the regression test definition with the latest observations and continue verification work before reporting.
+If the defect has not yet been verified three times, the agent must not create a failed-test report under the local report root. Instead, the agent should update the regression test definition with the latest observations and continue verification work before reporting.
 
 ## Contents of Each Defect Report
 
@@ -104,15 +106,15 @@ If screenshots, exports, or other supporting artifacts are needed, they must be 
 
 Examples:
 
-- `test_reports\20260826v1\RegressionError01\screenshot-01.png`
-- `test_reports\20260826v1\RegressionError01\network-notes.md`
+- `tmp\regression_local\danielolvedal\reports\20260903v1\RegressionError01\screenshot-01.png`
+- `tmp\regression_local\danielolvedal\reports\20260903v1\RegressionError01\network-notes.md`
 
 ## Working Rule
 
 When a regression test is executed in `Regression Mode`, the agent must:
 
 1. update the regression test case with reusable execution learnings
-2. create or update a run folder in `test_reports` for passed results and verified failed results only
+2. create or update a run folder in `tmp\regression_local\<owner>\reports` for passed results and verified failed results only
 3. write `summary.md`
 4. create a detailed defect report for each failed test only after verification is complete
 
@@ -134,6 +136,6 @@ Only after the allowed iteration has been exhausted, or a genuine product defect
 
 ## Important Principle
 
-A failed regression test is not ready for developer-facing reporting until the defect has been verified. Before that point, the correct place for the finding is the regression test documentation itself, not `test_reports`.
+A failed regression test is not ready for developer-facing reporting until the defect has been verified. Before that point, the correct place for the finding is the regression test documentation itself, not the local report root.
 
 The same principle applies to all `Learning Mode` executions, even when the observed outcome is passed.
