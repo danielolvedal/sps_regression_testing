@@ -52,6 +52,16 @@ function Get-RegisteredNodePtySession {
     return $null
 }
 
+function Get-OptionalProperty {
+    param(
+        [Parameter(Mandatory = $true)][object]$Object,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+    if (-not $Object) { return $null }
+    $prop = $Object.PSObject.Properties[$Name]
+    if ($prop) { return $Object.$Name } else { return $null }
+}
+
 function Update-ProjectSessionRegistry {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('upsert', 'mark-stopped')][string]$Action,
@@ -84,21 +94,22 @@ function Update-ProjectSessionRegistry {
 
 if ($true) {
     $existingSession = Get-RegisteredNodePtySession
-    if ($existingSession -and $existingSession.wrapper_pid) {
-        $existingProcess = Get-Process -Id $existingSession.wrapper_pid -ErrorAction SilentlyContinue
+    if ($existingSession -and (Get-OptionalProperty $existingSession 'wrapper_pid')) {
+        $existingWrapperPid = Get-OptionalProperty $existingSession 'wrapper_pid'
+        $existingProcess = if ($existingWrapperPid) { Get-Process -Id $existingWrapperPid -ErrorAction SilentlyContinue } else { $null }
         if ($existingProcess) {
             if (-not $RestartExisting) {
-                throw "An existing node-pty Copilot wrapper is still running with PID $($existingSession.wrapper_pid). Close that window first, or re-run with -RestartExisting."
+                            throw "An existing node-pty Copilot wrapper is still running with PID $existingWrapperPid. Close that window first, or re-run with -RestartExisting."
             }
 
-            Stop-Process -Id $existingSession.wrapper_pid -Force
+                        if ($existingWrapperPid) { Stop-Process -Id $existingWrapperPid -Force }
             $deadline = (Get-Date).AddSeconds($CloseTimeoutSeconds)
-            while ((Get-Date) -lt $deadline -and (Get-Process -Id $existingSession.wrapper_pid -ErrorAction SilentlyContinue)) {
+                        while ((Get-Date) -lt $deadline -and ($existingWrapperPid -and (Get-Process -Id $existingWrapperPid -ErrorAction SilentlyContinue))) {
                 Start-Sleep -Milliseconds 250
             }
 
-            if (Get-Process -Id $existingSession.wrapper_pid -ErrorAction SilentlyContinue) {
-                throw "The existing node-pty Copilot wrapper PID $($existingSession.wrapper_pid) did not close within $CloseTimeoutSeconds seconds. Close the window manually before continuing."
+                        if ($existingWrapperPid -and (Get-Process -Id $existingWrapperPid -ErrorAction SilentlyContinue)) {
+                            throw "The existing node-pty Copilot wrapper PID $existingWrapperPid did not close within $CloseTimeoutSeconds seconds. Close the window manually before continuing."
             }
             Update-ProjectSessionRegistry -Action 'mark-stopped'
         }
@@ -107,23 +118,26 @@ if ($true) {
 
 if ($true) {
     $existingSession = Get-RegisteredNodePtySession
-    if ($existingSession -and $existingSession.launcher_pid) {
-        $existingLauncher = Get-Process -Id $existingSession.launcher_pid -ErrorAction SilentlyContinue
+    if ($existingSession -and (Get-OptionalProperty $existingSession 'launcher_pid')) {
+        $existingLauncherPid = Get-OptionalProperty $existingSession 'launcher_pid'
+            $existingLauncher = if ($existingLauncherPid) { Get-Process -Id $existingLauncherPid -ErrorAction SilentlyContinue } else { $null }
         if ($existingLauncher) {
             $wrapperStillRunning = $false
-            if ($existingSession.wrapper_pid) {
-                $wrapperStillRunning = [bool](Get-Process -Id $existingSession.wrapper_pid -ErrorAction SilentlyContinue)
+            if (Get-OptionalProperty $existingSession 'wrapper_pid') {
+                $existingWrapperPid = Get-OptionalProperty $existingSession 'wrapper_pid'
+            $wrapperStillRunning = $false
+            if ($existingWrapperPid) { $wrapperStillRunning = [bool](Get-Process -Id $existingWrapperPid -ErrorAction SilentlyContinue) }
             }
             if (-not $RestartExisting -and $wrapperStillRunning) {
-                throw "An existing node-pty launcher window is still running with PID $($existingSession.launcher_pid). Close that window first, or re-run with -RestartExisting."
+                throw "An existing node-pty launcher window is still running with PID $existingLauncherPid. Close that window first, or re-run with -RestartExisting."
             }
-            Stop-Process -Id $existingSession.launcher_pid -Force
+            if ($existingLauncherPid) { Stop-Process -Id $existingLauncherPid -Force }
             $deadline = (Get-Date).AddSeconds($CloseTimeoutSeconds)
-            while ((Get-Date) -lt $deadline -and (Get-Process -Id $existingSession.launcher_pid -ErrorAction SilentlyContinue)) {
+            while ((Get-Date) -lt $deadline -and ($existingLauncherPid -and (Get-Process -Id $existingLauncherPid -ErrorAction SilentlyContinue))) {
                 Start-Sleep -Milliseconds 250
             }
-            if (Get-Process -Id $existingSession.launcher_pid -ErrorAction SilentlyContinue) {
-                throw "The existing node-pty launcher PID $($existingSession.launcher_pid) did not close within $CloseTimeoutSeconds seconds. Close the window manually before continuing."
+            if ($existingLauncherPid -and (Get-Process -Id $existingLauncherPid -ErrorAction SilentlyContinue)) {
+                            throw "The existing node-pty launcher PID $existingLauncherPid did not close within $CloseTimeoutSeconds seconds. Close the window manually before continuing."
             }
             Update-ProjectSessionRegistry -Action 'mark-stopped'
         }
@@ -178,7 +192,7 @@ Update-ProjectSessionRegistry -Action 'upsert' -Status 'launcher_started' -Launc
 $deadline = (Get-Date).AddSeconds(20)
 while ((Get-Date) -lt $deadline) {
     $registered = Get-RegisteredNodePtySession
-    if ($registered -and $registered.wrapper_pid) {
+    if ($registered -and (Get-OptionalProperty $registered 'wrapper_pid')) {
         break
     }
     Start-Sleep -Milliseconds 250

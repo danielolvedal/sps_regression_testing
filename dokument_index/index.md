@@ -212,6 +212,22 @@ Detta index är den primära ingången för AI-agenter och människor som behöv
 - `raw_data\System & länkar.xlsx` - System- och länksammanställning i Excel-format.
 - `raw_data\Uthyrning Upplärning.docx` - Upplärningsmaterial för uthyrning.
 
+## Rot- och infrastrukturartefakter
+
+- `package.json` - Rotmanifest för projektets Node.js-baserade verktygsberoenden.
+- `package-lock.json` - Låser de installerade Node.js-beroendena i rotmanifestet.
+- `tool_error_logs\copilot_installer_config.json` - Konfiguration som används av Copilot-installationsflödet.
+- `tool_error_logs\install_debug.txt` - Diagnostik från installationsflödet.
+- `tool_error_logs\install_report.json` - Maskinläsbar installationsrapport.
+- `tool_error_logs\install_report.md` - Läsbar installationsrapport.
+- `tool_error_logs\install_tool_exception.txt` - Fångat installationsfel från verktygsinfrastrukturen.
+- `tool_error_logs\install_tool_exception2.txt` - Fångat installationsfel från verktygsinfrastrukturen.
+- `tool_error_logs\install_tool_exception3.txt` - Fångat installationsfel från verktygsinfrastrukturen.
+- `tool_error_logs\install_tool_exception4.txt` - Fångat installationsfel från verktygsinfrastrukturen.
+- `tool_error_logs\install_tool_preflight_exception.txt` - Fångat preflight-fel från installationsflödet.
+- `tool_error_logs\install_tool_run.txt` - Körningslogg från installationsflödet.
+- `tool_error_logs\install_tool_run2.txt` - Körningslogg från installationsflödet.
+
 ## Huvudregler för framtida tillägg
 
 - Nya dokument ska läggas i rätt katalog enligt `tools\docs\katalogstruktur.md`.

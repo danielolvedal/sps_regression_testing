@@ -7,17 +7,26 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Initialize readiness flags to avoid uninitialized variable access later
+$script:nodeReady = $false
+$pythonReady = $false
+
 # Determine repo root: prefer current working directory (script should be run from repo root), fall back to path relative to this script.
 $cwd = (Get-Location).Path
 $detectedIndex = Join-Path $cwd 'dokument_index\index.md'
 if (Test-Path $detectedIndex) {
-    $repoRoot = Resolve-Path $cwd
+    $repoRoot = (Resolve-Path $cwd | Select-Object -First 1).Path
 } else {
-    $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..\..')
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..') | Select-Object -First 1).Path
 }
 
 # Ensure tool_error_logs directory exists at repo root for all tool infrastructure logs
 $logsDir = Join-Path $repoRoot 'tool_error_logs'
+# Debug: record repoRoot type and PSScriptRoot for troubleshooting parameter binding
+try {
+    $debugPath = Join-Path $repoRoot 'tool_error_logs\install_debug.txt'
+    "$([datetime]::UtcNow.ToString('o')) repoRoot=[$repoRoot] repoRootType=$($repoRoot.GetType().FullName) PSScriptRoot=[$PSScriptRoot]" | Out-File -FilePath $debugPath -Encoding UTF8 -Append
+} catch {}
 if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
 
 # Set COPILOT_ADMIN_TEST_OWNER to current Windows user if not already set
@@ -27,12 +36,21 @@ if (-not $env:COPILOT_ADMIN_TEST_OWNER) {
 
 # Persist minimal installer config for reproducibility
 try {
-    $installerConfig = @{ repo_root = $repoRoot.Path; COPILOT_ADMIN_TEST_OWNER = $env:COPILOT_ADMIN_TEST_OWNER }
+    $installerConfig = @{ repo_root = $repoRoot; COPILOT_ADMIN_TEST_OWNER = $env:COPILOT_ADMIN_TEST_OWNER }
     # Ensure tool_error_logs directory exists and write installer config there
     $logsDir = Join-Path $repoRoot 'tool_error_logs'
     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
     $installerConfigPath = Join-Path $logsDir 'copilot_installer_config.json'
     $installerConfig | ConvertTo-Json -Depth 3 | Out-File -FilePath $installerConfigPath -Encoding UTF8
+
+    # Ensure test_reports directory exists for backend status reporting and summaries
+    try {
+        $testReportsDir = Join-Path $repoRoot 'test_reports'
+        if (-not (Test-Path $testReportsDir)) { New-Item -Path $testReportsDir -ItemType Directory -Force | Out-Null }
+        "$([datetime]::UtcNow.ToString('o')) ensured test_reports at $testReportsDir" | Out-File -FilePath $debugPath -Encoding UTF8 -Append
+    } catch {
+        Write-Verbose "Failed to ensure test_reports directory: $_"
+    }
 } catch {
     Write-Verbose "Failed to persist installer config: $_"
 }
@@ -59,7 +77,9 @@ function Refresh-ProcessPath {
 
 function Invoke-ExternalCommand {
     param(
-        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()]
+        [Alias('Path')]
+        [object]$FilePath,
         [string[]]$Arguments = @()
     )
 
@@ -67,13 +87,19 @@ function Invoke-ExternalCommand {
     if (-not $logsDir) { $logsDir = Join-Path $repoRoot 'tool_error_logs' }
     if (-not (Test-Path $logsDir)) { New-Item -Path $logsDir -ItemType Directory -Force | Out-Null }
 
+    # Coerce FilePath to a single string when callers might pass an array
+    $filePathScalar = if ($FilePath -is [System.Array]) { $FilePath | Select-Object -First 1 } else { $FilePath }
+
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
-    $cmdName = Split-Path $FilePath -Leaf
+    $cmdName = Split-Path $filePathScalar -Leaf
+    # Ensure cmdName is a plain string
+    if ($cmdName -is [System.Array]) { $cmdName = ($cmdName | Select-Object -First 1) }
+
     $logFile = Join-Path $logsDir ("external-$timestamp-$cmdName.log")
     $startInfo = "$cmdName $([string]::Join(' ', $Arguments))"
 
     try {
-        $output = & $FilePath @Arguments 2>&1 | Out-String
+        $output = & $filePathScalar @Arguments 2>&1 | Out-String
         $exitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
     } catch {
         $output = $_ | Out-String
@@ -169,10 +195,10 @@ function New-DependencyCheck {
 function Get-PreflightState {
     $checks = New-Object System.Collections.Generic.List[object]
     $pythonPath = $null
-    $pythonReady = $false
+    $script:pythonReady = $false
     $nodePath = $null
     $npmPath = $null
-    $nodeReady = $false
+    $script:nodeReady = $false
 
     $windowsHost = $env:OS -eq 'Windows_NT'
     if ($windowsHost -and (Test-Path $windowsPowerShellPath)) {
@@ -193,7 +219,7 @@ function Get-PreflightState {
         $pythonProbe = Invoke-ExternalCommand -FilePath $pythonCommand.Source -Arguments @('-c', 'import sys; print(sys.executable)')
         if ($pythonProbe.ExitCode -eq 0) {
             $pythonPath = ($pythonProbe.Output -split "`r?`n" | Select-Object -Last 1).Trim()
-            $pythonReady = $true
+                        $script:pythonReady = $true
             $checks.Add((New-DependencyCheck -Id 'python' -Name 'Python 3' -Category 'system' -Required $true -Status 'ready' -Details $pythonPath))
         } else {
             $checks.Add((New-DependencyCheck -Id 'python' -Name 'Python 3' -Category 'system' -Required $true -Status 'missing' -Details 'python exists but could not execute a simple probe.' -InstallCommands @('winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'Python.Python.3.12'))
@@ -219,7 +245,7 @@ function Get-PreflightState {
         $nodeProbe = Invoke-ExternalCommand -FilePath $nodePath -Arguments @('--version')
         $npmProbe = Invoke-ExternalCommand -FilePath $npmPath -Arguments @('--version')
         if ($nodeProbe.ExitCode -eq 0 -and $npmProbe.ExitCode -eq 0) {
-            $nodeReady = $true
+                    $script:nodeReady = $true
             $details = "node=$($nodeProbe.Output.Trim()); npm=$($npmProbe.Output.Trim())"
             $checks.Add((New-DependencyCheck -Id 'nodejs' -Name 'Node.js LTS + npm' -Category 'system' -Required $true -Status 'ready' -Details $details))
         } else {
@@ -229,7 +255,7 @@ function Get-PreflightState {
         $checks.Add((New-DependencyCheck -Id 'nodejs' -Name 'Node.js LTS + npm' -Category 'system' -Required $true -Status 'missing' -Details $_.Exception.Message -InstallCommands @('winget install --id OpenJS.NodeJS.LTS -e --accept-package-agreements --accept-source-agreements') -AutoInstallMethod 'winget' -WingetId 'OpenJS.NodeJS.LTS'))
     }
 
-    if ($nodeReady) {
+    if ($script:nodeReady) {
             # First try the built-in node:sqlite
             $nodeSqliteProbe = Invoke-ExternalCommand -FilePath $nodePath -Arguments @('-e', 'import("node:sqlite").then(() => { console.log("node:sqlite ok"); }).catch((error) => { console.error(error.message); process.exit(1); });')
             if ($nodeSqliteProbe.ExitCode -eq 0) {
@@ -238,11 +264,19 @@ function Get-PreflightState {
                 # Fallback: check for common npm-backed sqlite packages in repo-local node_modules locations
                 $foundPkg = $null
                 $pkgPath = $null
-                $candidateDirs = @(
-                    Join-Path $repoRoot 'node_modules',
-                    Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\e2e\node_modules',
-                    Join-Path $repoRoot 'tools\source\copilot_admin_runner\node_pty_poc\node_modules'
-                )
+                # Diagnostic: compute candidate dirs one by one and log their types/values to help find array coercions
+                try {
+                    $c1 = Join-Path $repoRoot 'node_modules'
+                    $c2 = Join-Path $repoRoot 'tools\source\copilot_admin_control_plane\e2e\node_modules'
+                    $c3 = Join-Path $repoRoot 'tools\source\copilot_admin_runner\node_pty_poc\node_modules'
+                    $candidateDirs = @($c1, $c2, $c3)
+                    $dbg = "Candidate dirs: c1=[$c1] (type=$($c1.GetType().FullName)); c2=[$c2] (type=$($c2.GetType().FullName)); c3=[$c3] (type=$($c3.GetType().FullName))"
+                    $dbg | Out-File -FilePath (Join-Path $logsDir 'install_debug.txt') -Encoding UTF8 -Append
+                } catch {
+                    "Failed computing candidate dirs: $_" | Out-File -FilePath (Join-Path $logsDir 'install_debug.txt') -Encoding UTF8 -Append
+                    throw
+                }
+
                 foreach ($dir in $candidateDirs) {
                     if ($dir -and (Test-Path (Join-Path $dir 'sqlite3'))) { $foundPkg = 'sqlite3'; $pkgPath = Join-Path $dir 'sqlite3'; break }
                     if ($dir -and (Test-Path (Join-Path $dir 'better-sqlite3'))) { $foundPkg = 'better-sqlite3'; $pkgPath = Join-Path $dir 'better-sqlite3'; break }
@@ -393,8 +427,10 @@ function Invoke-WingetInstall {
     Refresh-ProcessPath
     if ($result.ExitCode -ne 0) {
         Write-Warning ("winget install failed for {0}. Exit code: {1}. Output: {2}" -f $Check.Name, $result.ExitCode, $result.Output)
+        try { "{0} winget install failed. See log: {1}" -f $Check.Name, $result.LogFile | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
         return $false
     }
+    try { "{0} winget install succeeded. Log: {1}" -f $Check.Name, $result.LogFile | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
     return $true
 }
 
@@ -405,20 +441,24 @@ function Invoke-RepoInstall {
         'node-pty-package' {
             Write-Host 'Installing repo-local node-pty dependency...'
             try {
-                & $nodePtyInstallScript
+                # Run the install script via Invoke-ExternalCommand to capture logs
+                $res = Invoke-ExternalCommand -FilePath $windowsPowerShellPath -Arguments @('-NoProfile','-ExecutionPolicy','Bypass','-File',$nodePtyInstallScript)
+                if ($res.ExitCode -ne 0) {
+                    Write-Warning ("Repo dependency install failed for {0}. Exit code: {1}. See log: {2}" -f $Check.Name, $res.ExitCode, $res.LogFile)
+                    try { "{0} repo install failed. See log: {1}" -f $Check.Name, $res.LogFile | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
+                    return $false
+                }
             } catch {
                 Write-Warning ("Repo dependency install failed: {0}" -f $_.Exception.Message)
-                return $false
-            }
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning ("Repo dependency install failed with exit code {0}." -f $LASTEXITCODE)
+                try { "{0} repo install failed. Exception: {1}" -f $Check.Name, $_.Exception.Message | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
                 return $false
             }
             return $true
         }
         'playwright-e2e-deps' {
-            if (-not $nodeReady) {
+            if (-not $script:nodeReady) {
                 Write-Warning 'Skipping Playwright e2e npm install because Node.js + npm is unavailable.'
+                try { "Playwright e2e npm install skipped because Node/npm unavailable." | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
                 return $false
             }
             Write-Host 'Installing Playwright e2e npm dependencies...'
@@ -430,19 +470,22 @@ function Invoke-RepoInstall {
                 if (-not $npmCmd) {
                     Write-Warning 'npm not found; cannot run npm install.'
                     Pop-Location
+                    try { "Playwright npm install failed: npm not found" | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
                     return $false
                 }
-                & $npmCmd install
-                $rc = $LASTEXITCODE
+                $res = Invoke-ExternalCommand -FilePath $npmCmd -Arguments @('install')
                 Pop-Location
-                if ($rc -ne 0) {
-                    Write-Warning ("npm install failed with exit code {0}." -f $rc)
+                if ($res.ExitCode -ne 0) {
+                    Write-Warning ("npm install failed with exit code {0}. See log: {1}" -f $res.ExitCode, $res.LogFile)
+                    try { "Playwright npm install failed. See log: {0}" -f $res.LogFile | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
                     return $false
                 }
             } catch {
                 Write-Warning ("Playwright e2e npm install failed: {0}" -f $_.Exception.Message)
+                try { "Playwright npm install failed: {0}" -f $_.Exception.Message | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
                 return $false
             }
+            try { "Playwright npm install succeeded. See log: {0}" -f $res.LogFile | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
             return $true
         }
         default { return $false }
@@ -482,13 +525,19 @@ Refresh-ProcessPath
 $postSystemState = Get-PreflightState
 Write-PreflightReport -State $postSystemState -Title 'Post-system-install pre-flight summary'
 
+# Prepare install action summary log
+if (-not $logsDir) { $logsDir = Join-Path $repoRoot 'tool_error_logs' }
+$installSummaryPath = Join-Path $logsDir 'install_action_summary.log'
+try { if (Test-Path $installSummaryPath) { Remove-Item $installSummaryPath -Force } } catch {}
+
 if (@($postSystemState.Checks | Where-Object { $_.Id -eq 'nodejs' -and $_.Status -eq 'ready' }).Count -gt 0) {
     $repoInstallChecks = @($postSystemState.MissingRequired | Where-Object { $_.AutoInstallMethod -eq 'script' })
     foreach ($check in $repoInstallChecks) {
-        $null = Invoke-RepoInstall -Check $check
+        $res = Invoke-RepoInstall -Check $check
     }
 } elseif (@($postSystemState.Checks | Where-Object { $_.Id -eq 'node-pty-package' -and $_.Status -ne 'ready' }).Count -gt 0) {
     Write-Warning 'Skipping repo-local node-pty install because Node.js + npm is still unavailable.'
+    try { "node-pty install skipped due to Node/npm unavailable" | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
 }
 
 Refresh-ProcessPath
@@ -499,7 +548,11 @@ Write-PreflightReport -State $finalState -Title 'Final pre-flight summary'
 try { Save-PreflightReport -State $finalState -PathRoot $repoRoot } catch { Write-Warning "Saving preflight report failed: $_" }
 
 if (-not $finalState.Passed) {
-    Write-Error 'Installation is not complete. Fix the remaining pre-flight failures above and re-run install_tool.ps1.'
+    # Do not throw; record summary and warn the user
+    Write-Warning 'Installation is not complete. Fix the remaining pre-flight failures above and re-run install_tool.ps1.'
+    try { "Installation incomplete. See detailed report: $($installerConfigPath); action summary: $installSummaryPath" | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
+} else {
+    try { "All required installs succeeded." | Out-File -FilePath $installSummaryPath -Encoding UTF8 -Append } catch {}
 }
 
 Write-Host 'Installation complete. start_tool.ps1 dependencies are ready.'

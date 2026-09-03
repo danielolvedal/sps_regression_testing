@@ -50,7 +50,11 @@ def collect_forbidden_tmp_dirs() -> list[str]:
 
 def collect_indexed_paths(index_text: str) -> set[str]:
     matches = re.findall(r"`([^`]+)`", index_text)
-    return {match for match in matches if "\\" in match or match.endswith(".md")}
+    return {
+        match
+        for match in matches
+        if "\\" in match or Path(match).suffix.lower() in TRACKED_EXTENSIONS
+    }
 
 
 def main() -> int:

@@ -110,6 +110,15 @@ Dokumentera minst:
 
 ## Senast verifierad körning
 
+- **Datum:** 2026-09-03
+- **Körläge:** Regression Mode
+- **Sökväg:** `Kontrakt -> Sök`
+- **Sökterm:** `Anna`
+- **Verifierad kandidat:** `Anna Walldén`, kontrakt `H-47184-000025049`
+- **Öppnad kontrakts-URL:** `https://sps-stage.europark.local/EditContract/Overview?contractId=H-47184-000025049`
+- **Utfall för miljökontroll:** stannade i nya stage, ingen legacy-fallback
+- **Öppnad serviceportal-URL:** `https://web-stage.europark.local/myaccount/index`
+- **Notering:** `Users` öppnades via `usersBtn`; assisted login öppnade en ny responsiv `web-stage`-flik som visade `Mitt Parkeringskonto` och den inloggade användaren.
 - **Datum:** 2026-08-26
 - **Körläge:** Regression Mode
 - **Sökväg:** `Kontrakt -> Sök`
